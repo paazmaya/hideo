@@ -1,0 +1,55 @@
+{
+  "name": "hideo",
+  "version": "0.1.0",
+  "description": "Generate report for visual regression testing",
+  "main": "index.js",
+  "bin": "bin/hideo.js",
+  "author": {
+    "name": "Juga Paazmaya",
+    "email": "paazmaya@yahoo.com",
+    "url": "https://paazmaya.fi"
+  },
+  "scripts": {
+    "lint": "eslint index.js bin/hideo.js lib",
+    "test": "nyc --all --exclude tests tape tests/*_test.js && rm -rf tmp",
+    "coverage": "nyc --all --exclude tests report --reporter=text-lcov > coverage.lcov && codecov"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paazmaya/hideo.git"
+  },
+  "keywords": [
+    "image",
+    "comparison",
+    "difference",
+    "diff",
+    "graphicmagick",
+    "imagemagick"
+  ],
+  "files": [
+    "bin",
+    "lib",
+    "LICENSE",
+    "index.js",
+    "README.md"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/paazmaya/hideo/issues"
+  },
+  "engines": {
+    "node": ">=8.11.1"
+  },
+  "homepage": "https://github.com/paazmaya/hideo",
+  "dependencies": {
+    "fs-extra": "^7.0.1",
+    "optionator": "^0.8.2"
+  },
+  "devDependencies": {
+    "codecov": "3.4.0",
+    "eslint": "5.16.0",
+    "eslint-config-paazmaya": "5.3.0",
+    "nyc": "14.1.0",
+    "tape": "4.10.1"
+  }
+}
