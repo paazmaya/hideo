@@ -20,6 +20,25 @@ called naginata.
 
 Please note that the minimum supported version of [Node.js](https://nodejs.org/en/) is `8.11.1`, which is [the active Long Term Support (LTS) version](https://github.com/nodejs/Release#release-schedule).
 
+The metrics input is expected to look something similar to, such as provided by shigehachi version 6 onwards:
+
+```json
+{
+  "16bf19e046e752c8a14df3799befa102d8a30a0e": {
+    "A": "tests/fixtures/prev/postcss.png",
+    "B": "tests/fixtures/curr/postcss.png",
+    "metric": "PeakAbsoluteError",
+    "normalised": {
+      "red": "0.1411764706",
+      "green": "0.7882352941",
+      "blue": "0.7960784314",
+      "opacity": "1.0000000000",
+      "total": "1.0000000000"
+    }
+  }
+}
+```
+
 ## Command line options
 
 The output of `hideo --help` pretty much covers all the options:
@@ -43,7 +62,8 @@ Please make sure it is over 90% at all times.
 
 ## Version history
 
-...
+* `v0.1.0` (2019-05-)
+  - Use [`npm-shrinkwrap.json`](https://docs.npmjs.com/files/shrinkwrap.json) for locking the working set of 3rd party dependencies
 
 ## License
 

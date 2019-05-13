@@ -17,7 +17,7 @@ const fs = require('fs'),
 
 const optionator = require('optionator');
 
-//const Hideo = require('../index');
+const hideo = require('../index');
 
 let pkg;
 
@@ -56,6 +56,25 @@ const optsParser = optionator({
       type: 'Boolean',
       default: false,
       description: 'Verbose output, will print which file is currently being processed'
+    },
+    {
+      option: 'target',
+      alias: 'T',
+      type: 'String',
+      description: 'Target directory for the HTML site'
+    },
+    {
+      option: 'metrics',
+      alias: 'M',
+      type: 'String',
+      description: 'Metrics data file from shigehachi'
+    },
+    {
+      option: 'directory',
+      alias: 'D',
+      type: 'String',
+      default: '.',
+      description: 'Directory for which the metrics are relative'
     }
   ]
 });
@@ -81,3 +100,14 @@ if (opts.help) {
   console.log(optsParser.generateHelp());
   process.exit();
 }
+
+const options = {
+  verbose: typeof opts.verbose === 'boolean' ?
+    opts.verbose :
+    false,
+  target: opts.target,
+  metrics: opts.metrics,
+  directory: opts.directory
+};
+
+hideo(options);

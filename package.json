@@ -10,7 +10,7 @@
     "url": "https://paazmaya.fi"
   },
   "scripts": {
-    "lint": "eslint index.js bin/hideo.js lib",
+    "lint": "eslint index.js bin/hideo.js",
     "test": "nyc --all --exclude tests tape tests/*_test.js && rm -rf tmp",
     "coverage": "nyc --all --exclude tests report --reporter=text-lcov > coverage.lcov && codecov"
   },
@@ -23,14 +23,15 @@
     "comparison",
     "difference",
     "diff",
-    "graphicmagick",
-    "imagemagick"
+    "regression",
+    "testing",
+    "visual"
   ],
   "files": [
     "bin",
-    "lib",
     "LICENSE",
     "index.js",
+    "npm-shrinkwrap.json",
     "README.md"
   ],
   "license": "MIT",
