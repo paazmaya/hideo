@@ -28,6 +28,7 @@ The metrics input is expected to look something similar to, such as provided by 
     "name": "Running PostCSS",
     "A": "tests/fixtures/prev/postcss.png",
     "B": "tests/fixtures/curr/postcss.png",
+    "diff": "tests/fixtures/diff/postcss-composite.png",
     "metric": "PeakAbsoluteError",
     "normalised": {
       "red": "0.1411764706",
