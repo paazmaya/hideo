@@ -25,6 +25,7 @@ The metrics input is expected to look something similar to, such as provided by 
 ```json
 {
   "16bf19e046e752c8a14df3799befa102d8a30a0e": {
+    "name": "Running PostCSS",
     "A": "tests/fixtures/prev/postcss.png",
     "B": "tests/fixtures/curr/postcss.png",
     "metric": "PeakAbsoluteError",
@@ -38,6 +39,8 @@ The metrics input is expected to look something similar to, such as provided by 
   }
 }
 ```
+
+The resulting HTML site is build by using JavaScript [template strings](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals).
 
 ## Command line options
 
