@@ -20,26 +20,34 @@ called naginata.
 
 Please note that the minimum supported version of [Node.js](https://nodejs.org/en/) is `8.11.1`, which is [the active Long Term Support (LTS) version](https://github.com/nodejs/Release#release-schedule).
 
-The metrics input is expected to look something similar to, such as provided by shigehachi version 6 onwards:
+The metrics input is expected to look something similar to, such as provided by [shigehachi](https://www.npmjs.com/package/shigehachi) version 6 onwards:
 
 ```json
 {
-  "16bf19e046e752c8a14df3799befa102d8a30a0e": {
-    "name": "Running PostCSS",
+  "5317107e6e45bc44da564197e8478702": {
+    "metric": "RootMeanSquaredError",
+    "normalized": {
+      "red": "0.0410206303",
+      "green": "0.2454052653",
+      "blue": "0.2478704718",
+      "opacity": "0.3134753265",
+      "total": "0.2353789431"
+    },
+    "absolute": {
+      "red": "2688.3",
+      "green": "16082.6",
+      "blue": "16244.2",
+      "opacity": "20543.6",
+      "total": "15425.6"
+    },
     "A": "tests/fixtures/prev/postcss.png",
     "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/diff/postcss-composite.png",
-    "metric": "PeakAbsoluteError",
-    "normalised": {
-      "red": "0.1411764706",
-      "green": "0.7882352941",
-      "blue": "0.7960784314",
-      "opacity": "1.0000000000",
-      "total": "1.0000000000"
-    }
+    "diff": "tests/fixtures/output/postcss-rmse-tint.png"
   }
 }
 ```
+
+The data collected by [`shigehachi`](https://www.npmjs.com/package/shigehachi) is basically gathering what GraphicsMagick tells when using its [`compare` utility](http://www.graphicsmagick.org/compare.html).
 
 The resulting HTML site is build by using JavaScript [template strings](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals).
 

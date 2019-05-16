@@ -10,6 +10,11 @@
 
 'use strict';
 
+const fs = require('fs'),
+  path = require('path');
+
+const generateSection = require('./lib/generate-section');
+
 /**
  * @param {object}  options           Set of options
  * @param {boolean} options.verbose   Set the output more verbose
@@ -20,5 +25,9 @@
  * @returns {void}
  */
 module.exports = (options) => {
-  //
+  let html = '';
+  Object.keys(options.metrics).forEach((key) => {
+    html += generateSection(key, options.metrics[key], options.directory);
+  });
+  fs.writeFileSync(path.join(options.target, 'hideo.html'), html, 'utf8');
 };

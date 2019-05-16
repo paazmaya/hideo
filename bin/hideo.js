@@ -61,6 +61,7 @@ const optsParser = optionator({
       option: 'target',
       alias: 'T',
       type: 'String',
+      default: '.',
       description: 'Target directory for the HTML site'
     },
     {
@@ -101,12 +102,38 @@ if (opts.help) {
   process.exit();
 }
 
+if (!opts.metrics) {
+  console.error('Metrics data file is required to get any futher.');
+  process.exit(2);
+}
+
+try {
+  fs.accessSync(opts.metrics);
+}
+catch (error) {
+  console.error('Metrics data file cannot be accessed.');
+  console.error(error.message);
+  process.exit(3);
+}
+
+const raw = fs.readFileSync(opts.metrics, 'utf8');
+let data;
+
+try {
+  data = JSON.parse(raw);
+}
+catch (error) {
+  console.error('Metrics data file could not be parsed.');
+  console.error(error.message);
+  process.exit(4);
+}
+
 const options = {
   verbose: typeof opts.verbose === 'boolean' ?
     opts.verbose :
     false,
   target: opts.target,
-  metrics: opts.metrics,
+  metrics: data,
   directory: opts.directory
 };
 
