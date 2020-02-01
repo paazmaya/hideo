@@ -18,7 +18,7 @@ called naginata.
 
 ## Getting started
 
-Please note that the minimum supported version of [Node.js](https://nodejs.org/en/) is `8.11.1`, which is [the active Long Term Support (LTS) version](https://github.com/nodejs/Release#release-schedule).
+Please note that the minimum supported version of [Node.js](https://nodejs.org/en/) is `10.13.0`, which is [the active Long Term Support (LTS) version](https://github.com/nodejs/Release#release-schedule).
 
 The metrics input is expected to look something similar to, such as provided by [shigehachi](https://www.npmjs.com/package/shigehachi) version 6 onwards:
 
