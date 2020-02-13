@@ -19,3 +19,8 @@ tape('a function with two parameters is exported', (test) => {
   test.equal(typeof hideo, 'function', 'is a function');
   test.equal(hideo.length, 1, 'has one parameter');
 });
+
+tape(, (test) => {
+  test.plan(2);
+  
+});

@@ -1,95 +1,14 @@
 {
-  "a0db9e2b1dec76cd4964bbac45daa719": {
-    "metric": "MeanAbsoluteError",
-    "normalized": {
-      "red": "0.0135227820",
-      "green": "0.0771904810",
-      "blue": "0.0779529725",
-      "opacity": "0.0982667803",
-      "total": "0.0667332540"
-    },
-    "absolute": {
-      "red": "886.2",
-      "green": "5058.7",
-      "blue": "5108.6",
-      "opacity": "6439.9",
-      "total": "4373.4"
-    },
-    "A": "tests/fixtures/prev/postcss.png",
-    "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/output/postcss-mae-tint.png"
-  },
-  "f95dbdc95ce07b58245ae093f05a0bdc": {
-    "metric": "MeanSquaredError",
-    "normalized": {
-      "red": "0.0016826921",
-      "green": "0.0602237442",
-      "blue": "0.0614397708",
-      "opacity": "0.0982667803",
-      "total": "0.0554032469"
-    },
-    "absolute": {
-      "red": "110.3",
-      "green": "3946.8",
-      "blue": "4026.5",
-      "opacity": "6439.9",
-      "total": "3630.9"
-    },
-    "A": "tests/fixtures/prev/postcss.png",
-    "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/output/postcss-mse-tint.png"
-  },
-  "8eae49c896aaadc85b20848b3cb8fbc1": {
-    "metric": "PeakAbsoluteError",
-    "normalized": {
-      "red": "0.1411764706",
-      "green": "0.7882352941",
-      "blue": "0.7960784314",
-      "opacity": "1.0000000000",
-      "total": "1.0000000000"
-    },
-    "absolute": {
-      "red": "9252.0",
-      "green": "51657.0",
-      "blue": "52171.0",
-      "opacity": "65535.0",
-      "total": "65535.0"
-    },
-    "A": "tests/fixtures/prev/postcss.png",
-    "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/output/postcss-pae-tint.png"
-  },
-  "1b5f238223e30293befd08eb7cae6e55": {
+  "cdfaebb483965949b1049c52c77d8ed3": {
     "metric": "PeakSignalToNoiseRatio",
     "psnr": {
-      "red": "27.74",
-      "green": "12.20",
-      "blue": "12.12",
-      "opacity": "10.08",
-      "total": "12.56"
+      "red": "17.78",
+      "green": "18.50",
+      "blue": "18.87",
+      "total": "18.36"
     },
-    "A": "tests/fixtures/prev/postcss.png",
-    "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/output/postcss-psnr-tint.png"
-  },
-  "5317107e6e45bc44da564197e8478702": {
-    "metric": "RootMeanSquaredError",
-    "normalized": {
-      "red": "0.0410206303",
-      "green": "0.2454052653",
-      "blue": "0.2478704718",
-      "opacity": "0.3134753265",
-      "total": "0.2353789431"
-    },
-    "absolute": {
-      "red": "2688.3",
-      "green": "16082.6",
-      "blue": "16244.2",
-      "opacity": "20543.6",
-      "total": "15425.6"
-    },
-    "A": "tests/fixtures/prev/postcss.png",
-    "B": "tests/fixtures/curr/postcss.png",
-    "diff": "tests/fixtures/output/postcss-rmse-tint.png"
+    "A": "tests/fixtures/prev/naginata.fi-header-navigation.png",
+    "B": "tests/fixtures/curr/naginata.fi-header-navigation.png",
+    "diff": "tests/fixtures/diff/naginata.fi-header-navigation.png"
   }
 }

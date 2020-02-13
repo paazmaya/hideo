@@ -104,6 +104,7 @@ if (opts.help) {
 
 if (!opts.metrics) {
   console.error('Metrics data file is required to get any futher.');
+  console.log(optsParser.generateHelp());
   process.exit(2);
 }
 

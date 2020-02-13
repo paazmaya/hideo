@@ -13,7 +13,7 @@
 const fs = require('fs'),
   path = require('path');
 
-const generateSection = require('./lib/generate-section');
+const generatePage = require('./lib/generate-page');
 
 /**
  * @param {object}  options           Set of options
@@ -25,9 +25,6 @@ const generateSection = require('./lib/generate-section');
  * @returns {void}
  */
 module.exports = (options) => {
-  let html = '';
-  Object.keys(options.metrics).forEach((key) => {
-    html += generateSection(key, options.metrics[key], options.directory);
-  });
+  const html = generatePage(options.metrics, options.directory);
   fs.writeFileSync(path.join(options.target, 'hideo.html'), html, 'utf8');
 };
