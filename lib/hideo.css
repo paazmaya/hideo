@@ -1,0 +1,28 @@
+
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: black;
+  color: white;
+  font-size: 100%;
+}
+
+header, footer {
+  padding: 1rem;
+}
+
+section {
+  padding: 1rem;
+}
+
+figcaption {
+  font-size: 90%;
+}
+
+.test-images {
+  display: flex;
+}
