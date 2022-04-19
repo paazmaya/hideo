@@ -4,7 +4,7 @@
 
 ![Mrs Hideo Sonobe](./logo.png)
 
-[![Ubuntu Build Status](https://paazmaya.semaphoreci.com/badges/hideo.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
+[![Ubuntu Build Status](https://paazmaya.semaphoreci.com/badges/hideo/branches/master.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
 
 This project is
 
