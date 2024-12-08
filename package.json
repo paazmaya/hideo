@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Generate report for visual regression testing",
   "main": "index.js",
-  "bin": "bin/hideo.js",
+  "bin": {
+    "hideo": "bin/hideo.js"
+  },
   "author": {
     "name": "Juga Paazmaya",
     "email": "paazmaya@yahoo.com",
@@ -16,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/paazmaya/hideo.git"
+    "url": "git+https://github.com/paazmaya/hideo.git"
   },
   "keywords": [
     "image",
