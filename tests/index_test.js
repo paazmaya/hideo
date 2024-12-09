@@ -8,8 +8,6 @@
  * Licensed under the MIT license
  */
 
-
-
 const tape = require('tape');
 const hideo = require('../index');
 
@@ -18,9 +16,4 @@ tape('a function with two parameters is exported', (test) => {
 
   test.equal(typeof hideo, 'function', 'is a function');
   test.equal(hideo.length, 1, 'has one parameter');
-});
-
-tape(, (test) => {
-  test.plan(2);
-  
 });
