@@ -6,7 +6,7 @@ const getStat = (filepath) => {
   try {
     return fs.statSync(filepath);
   }
-  catch (error) {
+  catch {
     return false;
   }
 };
