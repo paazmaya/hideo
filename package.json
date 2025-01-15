@@ -45,7 +45,7 @@
   },
   "homepage": "https://github.com/paazmaya/hideo",
   "dependencies": {
-    "fs-extra": "10.1.0",
+    "fs-extra": "11.3.0",
     "optionator": "0.9.4"
   },
   "devDependencies": {
