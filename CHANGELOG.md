@@ -5,4 +5,7 @@ It follows the guidance from https://keepachangelog.com/en/1.0.0/.
 
 ## Unreleased `v0.1.0` (2019-05-)
 
+- Migrate linting from ESLint to Oxlint with nursery rules enabled
+- Remove ESLint, eslint-config-paazmaya, and related dependencies
+
 - Use [`npm-shrinkwrap.json`](https://docs.npmjs.com/files/shrinkwrap.json) for locking the working set of 3rd party dependencies
