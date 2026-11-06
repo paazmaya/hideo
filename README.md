@@ -49,7 +49,7 @@ The metrics input is expected to look something similar to, such as provided by 
 }
 ```
 
-The data collected by [`shigehachi`](https://www.npmjs.com/package/shigehachi) is basically gathering what GraphicsMagick tells when using its [`compare` utility](http://www.graphicsmagick.org/compare.html).
+The data collected by [`shigehachi`](https://www.npmjs.com/package/shigehachi) is basically gathering what GraphicsMagick tells when using its [`compare` utility](https://www.graphicsmagick.org/compare.html).
 
 The resulting HTML site is build by using JavaScript [template strings](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals).
 
@@ -63,11 +63,11 @@ The output of `hideo --help` pretty much covers all the options:
 
 ## Contributing
 
-["A Beginner's Guide to Open Source: The Best Advice for Making your First Contribution"](http://www.erikaheidi.com/blog/a-beginners-guide-to-open-source-the-best-advice-for-making-your-first-contribution/).
+["A Beginner's Guide to Open Source: The Best Advice for Making your First Contribution"](https://www.erikaheidi.com/blog/a-beginners-guide-to-open-source-the-best-advice-for-making-your-first-contribution/).
 
 [Also there is a blog post about "45 Github Issues Dos and Don’ts"](https://davidwalsh.name/45-github-issues-dos-donts).
 
-Linting is done with [ESLint](http://eslint.org) and can be executed with `npm run lint`.
+Linting is done with [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) and can be executed with `npm run lint`.
 There should be no errors appearing after any JavaScript file changes.
 
 Unit tests are written with [`tape`](https://github.com/substack/tape) and can be executed with `npm test`.
