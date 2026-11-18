@@ -60,3 +60,10 @@ typings/
 
 # next.js build output
 .next
+
+/target
+/pdf-output
+/.hideo-cache
+*.pdf
+!tests/**/*.pdf
+.DS_Store

@@ -1,0 +1,81 @@
+# https://www.appveyor.com/docs/appveyor-yml/
+image:
+  - Visual Studio 2022
+
+branches:
+  only:
+    - main
+
+skip_branch_with_pr: true
+
+skip_commits:
+  files:
+    - "*.md"
+    - "LICENSE*"
+
+version: "{build}-{branch}"
+
+environment:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+init:
+  - git config --global core.longpaths true
+
+clone_depth: 1
+
+cache:
+  - '%USERPROFILE%\.cargo\registry -> Cargo.lock'
+  - target -> Cargo.lock, rust-toolchain.toml, appveyor.yml
+
+install:
+  - ps: |
+      if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-host x86_64-pc-windows-msvc --profile minimal
+        Remove-Item rustup-init.exe
+      }
+  - set PATH=%USERPROFILE%\.cargo\bin;%PATH%
+  - rustup show
+  - rustc -V
+  - cargo -V
+
+build: off
+
+test_script:
+  - cargo fmt --all --check
+  - cargo clippy --all-targets --locked -- -D warnings
+  - cargo test --locked
+  - cargo build --release --locked
+  - set SOURCE_DATE_EPOCH=1700000000
+  - target\release\hideo.exe build --input tests\fixtures\full --output out1 --jobs 1
+  - target\release\hideo.exe build --input tests\fixtures\full --output out2 --jobs 4
+  - ps: Get-ChildItem out1\*.pdf | ForEach-Object { if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) { throw "not reproducible: $($_.Name)" } }
+
+after_test:
+  - ps: |
+      if ($env:APPVEYOR_REPO_TAG -eq "true") {
+        $v = $env:APPVEYOR_REPO_TAG_NAME
+        $dir = "hideo-$v-x86_64-pc-windows-msvc"
+        New-Item -ItemType Directory $dir | Out-Null
+        Copy-Item target\release\hideo.exe, LICENSE, README.md $dir
+        Compress-Archive $dir "$dir.zip"
+        (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Set-Content "$dir.zip.sha256"
+        Push-AppveyorArtifact "$dir.zip"
+        Push-AppveyorArtifact "$dir.zip.sha256"
+      }
+
+artifacts:
+  - path: out1\*.pdf
+    name: fixture-pdfs
+
+deploy:
+  - provider: GitHub
+    auth_token:
+      secure: <encrypted GitHub token>
+    artifact: /hideo-.*\.zip.*/
+    tag: $(APPVEYOR_REPO_TAG_NAME)
+    draft: true
+    on:
+      APPVEYOR_REPO_TAG: true

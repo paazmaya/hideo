@@ -1,0 +1,45 @@
+# hideo.toml - Example configuration
+tiers = ["required", "additional", "bonus"]
+ignore_prefixes = ["_", "."]
+
+[page]
+width_mm = 210
+margin_x_mm = 20
+margin_y_mm = 18
+hero_height_mm = 118.125
+
+[images]
+dpi = 200
+jpeg_quality = 70
+contents_hero = "images/contents.png"
+cover_pattern = "images/cover_front_{tier}.png"
+
+[cover]
+title = "Book title"
+author = "Author name"
+tier_line = "{Tier} course material"
+panel_width_mm = 170
+panel_offset_mm = 20
+
+[contents]
+columns = 2
+
+[diagrams]
+backend = "external"
+command = "mmdc"
+args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
+timeout_s = 30
+theme = "assets/mermaid-theme.json"
+
+[build]
+cache_dir = ".hideo-cache"
+
+[diagnostics]
+warnings_as_errors = false
+
+[book]
+lang = "fi"
+
+[accessibility]
+tagged = true
+pdf_ua = true

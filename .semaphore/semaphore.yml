@@ -1,27 +1,119 @@
-# https://docs.semaphoreci.com/reference/pipeline-yaml
+# https://docs.semaphore.io/reference/pipeline-yaml
 version: v1.0
-name: Ubuntu Based Pipeline
+name: hideo
 agent:
   machine:
-    type: e1-standard-2
-    # https://docs.semaphoreci.com/reference/os-ubuntu-images/ubuntu-2004-image
-    os_image: ubuntu2004
+    type: f1-standard-2
+    os_image: ubuntu2404
+
+auto_cancel:
+  running:
+    when: "branch != 'main'"
+
+fail_fast:
+  stop:
+    when: "branch != 'main'"
+
+global_job_config:
+  env_vars:
+    - name: CARGO_TERM_COLOR
+      value: always
+    - name: CARGO_INCREMENTAL
+      value: "0"
+  prologue:
+    commands:
+      - checkout
+      - 'command -v rustup >/dev/null || curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'
+      - export PATH="$HOME/.cargo/bin:$PATH"
+      - rustup show
+      - rustc -V && cargo -V
+      - cache restore cargo-registry-$(checksum Cargo.lock),cargo-registry
+      - cargo fetch --locked
+  epilogue:
+    on_pass:
+      commands:
+        - cache has_key cargo-registry-$(checksum Cargo.lock) || cache store cargo-registry-$(checksum Cargo.lock) ~/.cargo/registry
 
 blocks:
-  - name: Test with Node.js v24
+  - name: Lint
+    run:
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+    task:
+      jobs:
+        - name: fmt and clippy
+          commands:
+            - cargo fmt --all --check
+            - cargo clippy --all-targets --locked -- -D warnings
+
+  - name: Test (Linux x86_64)
+    run:
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
     task:
       prologue:
         commands:
-          - checkout
-          - sem-version node 24
-          - cache restore node-modules-$(checksum npm-shrinkwrap.json)
-          - npm ci --ignore-scripts
-          - cache store node-modules-$(checksum npm-shrinkwrap.json) node_modules
+          - cache restore target-linux-$(checksum Cargo.lock),target-linux
       jobs:
-        - name: Lint
+        - name: cargo test
           commands:
-            - npm run lint
-        - name: Unit test and post coverage
+            - cargo test --locked
+      epilogue:
+        on_pass:
           commands:
-          - npm test
-          - npm run coverage
+            - cache has_key target-linux-$(checksum Cargo.lock) || cache store target-linux-$(checksum Cargo.lock) target
+
+  - name: MSRV (Rust 1.92)
+    run:
+      when: "change_in(['/src/', '/Cargo.toml', '/Cargo.lock', '/.semaphore/'])"
+    task:
+      jobs:
+        - name: cargo check on MSRV
+          commands:
+            - rustup toolchain install 1.92 --profile minimal
+            - cargo +1.92 check --locked
+
+  - name: Test (Linux ARM)
+    run:
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+    task:
+      agent:
+        machine:
+          type: r1-standard-2
+          os_image: ubuntu2404
+      jobs:
+        - name: cargo test
+          commands:
+            - cargo test --locked
+
+  - name: Test (macOS)
+    run:
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+    task:
+      agent:
+        machine:
+          type: a2-standard-4
+          os_image: macos-xcode26
+      jobs:
+        - name: cargo test
+          commands:
+            - cargo test --locked
+
+  - name: Release build and end-to-end
+    run:
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+    task:
+      jobs:
+        - name: build, build fixture twice, compare
+          commands:
+            - cargo build --release --locked
+            - export SOURCE_DATE_EPOCH=1700000000
+            - ./target/release/hideo build --input tests/fixtures/full --output out1 --jobs 1
+            - ./target/release/hideo build --input tests/fixtures/full --output out2 --jobs 4
+            - for f in out1/*.pdf; do cmp "$f" "out2/$(basename "$f")"; done
+            - artifact push workflow target/release/hideo
+            - artifact push workflow out1 --destination fixture-pdfs
+
+promotions:
+  - name: Release
+    pipeline_file: release.yml
+    auto_promote:
+      when: "tag =~ '^v[0-9]+\\.[0-9]+\\.[0-9]+$' AND result = 'passed'"
