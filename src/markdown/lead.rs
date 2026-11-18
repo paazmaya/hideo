@@ -1,79 +1,74 @@
+//! Lead-in paragraphs (plan F17): a paragraph that opens with a short bold label such as
+//! `**Note.** The rest of the paragraph.`
+
 use pulldown_cmark::{Event, Tag, TagEnd};
-use crate::markdown::escape::escape_text;
-use crate::markdown::escape::Position;
 
-pub fn is_lead_paragraph(events: &[Event]) -> bool {
-    if events.is_empty() {
-        return false;
-    }
+/// Maximum length of the label in characters.
+pub const MAX_LEAD_CHARS: usize = 40;
 
-    let mut iter = events.iter().peekable();
-
-    if !matches!(iter.next(), Some(Event::Start(Tag::Strong))) {
-        return false;
-    }
-
-    let mut strong_text = String::new();
-    let mut text_count = 0;
-
-    while let Some(event) = iter.next() {
-        match event {
-            Event::Text(t) | Event::Code(t) => {
-                strong_text.push_str(t);
-                text_count += 1;
-            }
-            Event::End(TagEnd::Strong) => break,
-            Event::Start(Tag::Link { .. }) | Event::Start(Tag::Image { .. }) | Event::Start(Tag::CodeBlock) => {
-                return false;
-            }
-            _ => {}
+/// If the paragraph events (the events *inside* `Start(Paragraph)`/`End(Paragraph)`) open with a
+/// lead-in label, return the label text and the number of events it occupies (always 3).
+///
+/// Qualifies: `Start(Strong)`, exactly one `Text`, `End(Strong)`, where the text ends in `.` or
+/// `:` and is at most 40 characters (a 40-character text ending in `.` qualifies). Strong text
+/// containing code, links or other inline elements does not qualify, and `**A** **B.**` is two
+/// separate strong runs, of which only the first is looked at.
+pub fn detect_lead<'a>(events: &'a [Event<'a>]) -> Option<(&'a str, usize)> {
+    match events {
+        [
+            Event::Start(Tag::Strong),
+            Event::Text(text),
+            Event::End(TagEnd::Strong),
+            ..,
+        ] => {
+            let trimmed = text.trim_end();
+            let ends_ok = trimmed.ends_with('.') || trimmed.ends_with(':');
+            (ends_ok && text.chars().count() <= MAX_LEAD_CHARS).then_some((&**text, 3))
         }
-    }
-
-    if text_count != 1 {
-        return false;
-    }
-
-    let trimmed = strong_text.trim_end();
-    if !trimmed.ends_with('.') && !trimmed.ends_with(':') {
-        return false;
-    }
-
-    if trimmed.len() > 40 {
-        return false;
-    }
-
-    true
-}
-
-pub fn emit_lead(strong_text: &str, rest_events: &[Event]) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("#lead[{}", escape_text(strong_text, Position::Inline)));
-    out.push_str("]\n");
-
-    for event in rest_events {
-        out.push_str(&emit_event(event, Position::Inline));
-    }
-
-    out
-}
-
-fn emit_event(event: &Event, position: Position) -> String {
-    match event {
-        Event::Text(t) => escape_text(t, position),
-        Event::Code(t) => format!("`{}`", escape_text(t, position)),
-        Event::SoftBreak => " ".to_string(),
-        Event::HardBreak => "\\\n".to_string(),
-        Event::Start(Tag::Emphasis) => "*".to_string(),
-        Event::End(TagEnd::Emphasis) => "*".to_string(),
-        Event::Start(Tag::Strong) => "**".to_string(),
-        Event::End(TagEnd::Strong) => "**".to_string(),
-        Event::Start(Tag::Link { dest_url, .. }) => format!("#link(\"{}\")[", escape_typst_string(dest_url)),
-        Event::End(TagEnd::Link) => "]".to_string(),
-        _ => String::new(),
+        _ => None,
     }
 }
 
-fn escape_typst_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markdown::parser_options;
+    use pulldown_cmark::Parser;
+
+    fn lead_of(md: &str) -> Option<String> {
+        let events: Vec<Event> = Parser::new_ext(md, parser_options()).collect();
+        // events[0] is Start(Paragraph)
+        detect_lead(&events[1..]).map(|(t, _)| t.to_string())
+    }
+
+    #[test]
+    fn test_lead_in_label() {
+        assert_eq!(lead_of("**Note.** Rest of it"), Some("Note.".into()));
+        assert_eq!(lead_of("**Example:** more"), Some("Example:".into()));
+        assert_eq!(lead_of("**Only.**"), Some("Only.".into()));
+    }
+
+    #[test]
+    fn test_lead_in_length_limit() {
+        let forty = format!("{}.", "a".repeat(39));
+        assert_eq!(forty.chars().count(), 40);
+        assert_eq!(lead_of(&format!("**{forty}** x")), Some(forty));
+        let forty_one = format!("{}.", "a".repeat(40));
+        assert_eq!(lead_of(&format!("**{forty_one}** x")), None);
+    }
+
+    #[test]
+    fn test_lead_in_not_when_split_strong() {
+        assert_eq!(lead_of("**A** **B.** rest"), None);
+        assert_eq!(lead_of("**No terminator** rest"), None);
+        assert_eq!(lead_of("plain **Note.** later"), None);
+    }
+
+    #[test]
+    fn test_lead_in_not_with_code_or_link() {
+        assert_eq!(lead_of("**`code`.** rest"), None);
+        assert_eq!(lead_of("**[link](x.md).** rest"), None);
+        assert_eq!(lead_of("**Some *nested*.** rest"), None);
+        assert_eq!(lead_of("*Emphasis.* rest"), None);
+    }
 }

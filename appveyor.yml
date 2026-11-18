@@ -51,7 +51,12 @@ test_script:
   - set SOURCE_DATE_EPOCH=1700000000
   - target\release\hideo.exe build --input tests\fixtures\full --output out1 --jobs 1
   - target\release\hideo.exe build --input tests\fixtures\full --output out2 --jobs 4
-  - ps: Get-ChildItem out1\*.pdf | ForEach-Object { if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) { throw "not reproducible: $($_.Name)" } }
+  - ps: |
+      Get-ChildItem out1\*.pdf | ForEach-Object {
+        if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) {
+          throw "not reproducible: $($_.Name)"
+        }
+      }
 
 after_test:
   - ps: |

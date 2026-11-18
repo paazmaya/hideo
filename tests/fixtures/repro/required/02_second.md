@@ -1,9 +1,6 @@
 ---
 title: "Second Page"
-hero: "hero2.png"
-subtitle: "More content"
-author: "Author Name"
-lang: "en"
+hero: "images/hero.png"
 ---
 
 # Second Page
@@ -12,4 +9,4 @@ This is the second page.
 
 ## Another Section
 
-Content on the second page.
+Content on the second page, linking [back](01_intro.md).

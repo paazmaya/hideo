@@ -1,8 +1,23 @@
-use clap::{Parser, Subcommand, ValueEnum};
 use camino::Utf8PathBuf;
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
-#[command(name = "hideo", version, about = "Build PDF books from Markdown")]
+#[command(
+    name = "hideo",
+    version,
+    about = "Build PDF books from Markdown",
+    long_about = "Build one accessible PDF book per tier folder from Markdown pages and images.
+
+The Typst compiler is embedded; the only optional external tool is a Mermaid renderer for diagrams.",
+    after_help = "EXIT CODES:
+  0  success
+  1  content or build error (the message names the page and line)
+  2  usage or configuration error
+
+ENVIRONMENT:
+  SOURCE_DATE_EPOCH  seconds since the Unix epoch (UTC) used as the PDF timestamp, for
+                     reproducible builds; default 946684800 (2000-01-01T00:00:00Z)"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -25,31 +40,31 @@ pub struct BuildArgs {
     pub tiers: Vec<String>,
 
     /// Source folder
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long, value_name = "DIR", default_value = ".")]
     pub input: Utf8PathBuf,
 
     /// Output folder
-    #[arg(short, long, default_value = "pdf-output")]
+    #[arg(short, long, value_name = "DIR", default_value = "pdf-output")]
     pub output: Utf8PathBuf,
 
-    /// Config file
-    #[arg(short, long)]
+    /// Config file (default: hideo.toml in the source folder)
+    #[arg(short, long, value_name = "FILE")]
     pub config: Option<Utf8PathBuf>,
 
-    /// Diagram backend
-    #[arg(long, value_enum, default_value = "external")]
-    pub diagrams: DiagramBackend,
+    /// Diagram backend (overrides diagrams.backend from the config)
+    #[arg(long, value_name = "BACKEND", value_enum)]
+    pub diagrams: Option<DiagramBackend>,
 
-    /// Write generated Typst source to directory
-    #[arg(long)]
+    /// Write the generated Typst source per tier to this directory (for debugging)
+    #[arg(long, value_name = "DIR")]
     pub keep_typst: Option<Utf8PathBuf>,
 
     /// Exit with error if any internal link is unresolved
     #[arg(long)]
     pub deny_unresolved: bool,
 
-    /// Worker threads
-    #[arg(long)]
+    /// Worker threads (default: logical cores)
+    #[arg(long, value_name = "N")]
     pub jobs: Option<usize>,
 
     /// Suppress warnings
@@ -68,15 +83,15 @@ pub struct CheckArgs {
     pub tiers: Vec<String>,
 
     /// Source folder
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long, value_name = "DIR", default_value = ".")]
     pub input: Utf8PathBuf,
 
-    /// Config file
-    #[arg(short, long)]
+    /// Config file (default: hideo.toml in the source folder)
+    #[arg(short, long, value_name = "FILE")]
     pub config: Option<Utf8PathBuf>,
 
     /// Report format
-    #[arg(long, value_enum, default_value = "text")]
+    #[arg(long, value_name = "FORMAT", value_enum, default_value = "text")]
     pub format: ReportFormat,
 }
 
@@ -87,15 +102,15 @@ pub struct ListArgs {
     pub tiers: Vec<String>,
 
     /// Source folder
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long, value_name = "DIR", default_value = ".")]
     pub input: Utf8PathBuf,
 
-    /// Config file
-    #[arg(short, long)]
+    /// Config file (default: hideo.toml in the source folder)
+    #[arg(short, long, value_name = "FILE")]
     pub config: Option<Utf8PathBuf>,
 
     /// Output format
-    #[arg(long, value_enum, default_value = "text")]
+    #[arg(long, value_name = "FORMAT", value_enum, default_value = "text")]
     pub format: ReportFormat,
 }
 

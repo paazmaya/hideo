@@ -1,0 +1,11 @@
+tiers = ["required"]
+
+[book]
+lang = "en"
+
+[cover]
+title = "Diagrams"
+author = "Test Author"
+
+[diagrams]
+backend = "external"

@@ -1,0 +1,11 @@
+tiers = ["required"]
+
+[book]
+lang = "en"
+
+[cover]
+title = "Edge Cases"
+author = "Test Author"
+
+[diagrams]
+backend = "off"

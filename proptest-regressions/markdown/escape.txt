@@ -1,0 +1,14 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c799c867f3aaed1425bb22f9484fbf0c80b7aae702f1eb8db6ca6e134a6fbf19 # shrinks to s = "ö0'"
+cc cc4059ec2e8ebd4cbb873a47bb39e7fc8522c1cd74a89f25c47a17c71971fb3d # shrinks to s = "0\""
+cc 5e3606c517db69fbff9f28b9203f5fb4af6382ad6736918b3615b7b6d1262a5c # shrinks to s = "0'"
+cc d19c1a7b70e8f2472752bd64ae411b93d9e9ecef128087def231612e16235480 # shrinks to s = "\"-0"
+cc 9aa3029bf80c98a44b5e64041f44c4e27623f1578949ec866ec2e362327a61f3 # shrinks to s = "<-0"
+cc f22633e2f61d63eb309c0b74325e97ea16f45f3545626274a579294e990f83bb # shrinks to s = "-0"
+cc ef7593c2d748acfdd1e1d1f25ae0f9c8b63b4913d6defa4ab74c313ed2a7cc59 # shrinks to s = ";"
+cc bb90dd10e76c642c77e41117b92a4eed03e3e4cd1b2fdfd63ff0b8292f06ec6e # shrinks to s = "00AA 0ööa0aA0aä0 Aä0 ööAäAAaöa -?öäöäA\"ö\"0Aaä\"a Aöa"

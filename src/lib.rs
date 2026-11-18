@@ -1,24 +1,18 @@
-//! hideo - A standalone Rust CLI for building PDF books from Markdown
+//! hideo: a standalone Rust CLI for building PDF books from Markdown.
 
+pub mod app;
+pub mod build;
 pub mod cli;
+pub mod compile;
 pub mod config;
-pub mod error;
+pub mod diagrams;
 pub mod discover;
+pub mod error;
 pub mod frontmatter;
-pub mod page;
+pub mod images;
 pub mod linkmap;
 pub mod markdown;
-pub mod images;
-pub mod diagrams;
+pub mod page;
+pub mod report;
 pub mod template;
 pub mod world;
-pub mod compile;
-pub mod report;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_placeholder() {
-        assert!(true);
-    }
-}

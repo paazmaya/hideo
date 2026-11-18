@@ -1,0 +1,17 @@
+tiers = ["required", "additional", "bonus"]
+
+[book]
+lang = "en"
+
+[images]
+contents_hero = "images/contents.png"
+
+[contents]
+columns = 2
+
+[cover]
+title = "The Full Book"
+author = "Test Author"
+
+[diagrams]
+backend = "off"

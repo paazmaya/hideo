@@ -23,6 +23,7 @@ panel_offset_mm = 20
 
 [contents]
 columns = 2
+title = "Sisällys"
 
 [diagrams]
 backend = "external"

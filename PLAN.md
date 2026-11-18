@@ -1,5 +1,167 @@
 # hideo: A Standalone Rust CLI for Building PDF Books from Markdown
 
+## Implementation Task List
+
+> Evaluated 2026-11-18 against commit `28ed39c` ("Implementation has begun"). At that commit
+> `cargo build` failed with 28 errors, `main.rs` was `todo!()` for all three commands, the Typst
+> template was not valid Typst and several fixtures were malformed. Most modules were rewritten
+> rather than repaired. `[x]` = implemented **and** verified by `cargo test` (166 unit tests,
+> 58 integration tests, all green) or by running the binary; nothing is marked done because the
+> code merely exists. `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` are
+> clean with and without `--features native-diagrams`.
+>
+> **Last updated 2026-11-18.** Nothing is committed yet.
+
+**Foundation (Appendix E)**
+
+- [x] `Cargo.toml` with pinned Typst crates, features and profiles; `Cargo.lock` committed (unused `anyhow`, `tracing*` and `image-compare` removed)
+- [x] `rust-toolchain.toml`, `.gitignore` replaced, example `hideo.toml`
+- [x] `.semaphore/semaphore.yml`, `.semaphore/release.yml`, `appveyor.yml` written; their commands match the real CLI flags
+- [x] Config structs with `deny_unknown_fields` (`config.rs`), CLI definitions (`cli.rs`), error and warning codes (`error.rs`)
+- [x] `oxlint.json` deleted; Renovate `packageRules` for `typst*` and `pulldown-cmark`; README rewritten (usage, profile, accessibility); CHANGELOG entry
+- [ ] **CI actually green on Semaphore and AppVeyor** (needs a push; the first-run `(verify)` items in 8.6 are still open)
+- [ ] README badge and docs links to `semaphore.io` (verify they redirect)
+
+**M1 Skeleton + Config (F1–F4, F21, F22)**
+
+- [x] Crate compiles with no errors; `cargo clippy` clean
+- [x] Config loading from file, paths relative to the config file, validation, exit code 2 (`test_config_*`)
+- [x] Discovery: ignore prefixes at any depth, natural case-insensitive order, non-UTF-8 rejection (F2, F3). The non-UTF-8 test only runs on Unix.
+- [x] Frontmatter parser incl. BOM, CRLF, quotes, unclosed block (F4) with the unit tests in 8.2
+- [x] `list` and `check` commands work on fixtures; exit codes 0/1/2
+- [x] Fixtures rewritten as valid single-frontmatter pages (`minimal`, `full`, `edge`, `repro`, `windows-paths`, plus `diagrams`)
+- [x] Day-1 vertical slice: `HideoWorld` compiles a hard-coded string to a PDF that `lopdf` reads
+
+**M2 Link Model (F5–F8)**
+
+- [x] Heading IDs: slug, explicit `{#id}`, duplicates, validation (E003)
+- [x] Page-qualified labels `<page_key--id>`; lexical link resolution, case-mismatch warning, outside-tier, report grouping, `--deny-unresolved`
+
+**M3 Images (F10–F12)**
+
+- [x] Hero pipeline: resolve, EXIF, alpha, scale (never upscale), JPEG, blake3 cache, decode limits, placeholder (W003)
+- [x] Cover and contents-hero images; resize benchmark recorded (notes below)
+
+**M4 Emitter Core (F9, F17, F18, F5 labels)**
+
+- [x] Escaping (`escape.rs`) incl. line-start rules; code goes into string literals instead of raw delimiters (note N3)
+- [x] Event-walk emitter: paragraphs, emphasis, strong, links, lists (nested, ordered), quotes, code, rules, hard/soft breaks, body images
+- [x] Unsupported-construct errors/warnings, HTML comment dropping, `catch_unwind`
+- [x] Lead-in paragraphs; external-link arrow marker with alt text
+- [x] `LineMap` (Typst line to Markdown line)
+- [x] `insta` snapshots and `proptest` properties (escaping, table widths, slugs, line index, link destinations)
+
+**M5 Tables (F16, F24)**
+
+- [x] Width/fraction algorithm, font reduction, long-string ZWSP, alignment
+- [x] Header row emitted as `table.header(...)`; W006
+- [x] Struct-tree test with `lopdf`: header cells are `TH` with column scope, body cells `TD`, negative control
+- [ ] Non-splitting rows: `set table.cell(breakable: false)` is in the template, but no fixture proves that a row that fits is never split across pages
+
+**M6 Typst Integration (F10, F12–F14, F19, F20, F24)**
+
+- [x] Valid `assets/template.typ`; cover, contents with page numbers and leaders as artifacts, footer
+- [x] Per-page virtual files, `World` on `typst-kit`, fixed timestamp, `SOURCE_DATE_EPOCH` (exit 2 if invalid)
+- [x] PDF/UA-1 validation on by default; E006 mapping; atomic PDF write
+- [x] Diagnostic mapping to page and Markdown line (proved end to end by the missing-glyph E006 at the right file line)
+- [x] `build` command end to end; `--keep-typst`; `--jobs`; reproducibility test across processes (`--jobs 1` vs `8`)
+
+**M7 Diagrams (F15)**
+
+- [x] `DiagramRenderer` trait, post-conditions (`<svg`, no `foreignObject`, font warning), disk cache
+- [x] External backend with timeout and stderr tail; error format from F15
+- [x] Mermaid fence handling in the emitter with alt text (W008)
+- [x] Native backend (`native-diagrams`) and M7 gate evaluation against real `mmdc` 12.2.0 on nine diagram types (note N5)
+- [x] External backend verified with real `mmdc` (`test_real_mmdc_output_passes_the_post_conditions`, skipped when `mmdc` is absent); the theme needed top-level `htmlLabels` and `fontFamily`
+- [x] 120 diagrams through real `mmdc` 12.2.0 (generated: 9 types, 30 pages): 0 errors, cold 25 s on 32 cores, warm 1 s, two cold builds byte-identical (note N11). The author's actual book diagrams are still untested
+
+**M8 Hardening**
+
+- [x] Full-fixture build, PDF/UA-1 passes, `typst-render` visual snapshots in `tests/visual/` (8 pages, reviewed against Appendix B)
+- [x] Performance benchmark on a generated corpus: goal met (note N6)
+- [ ] veraPDF baseline (`--flavour ua1`) on the `full/` PDFs (manual; needs Java)
+- [ ] One screen-reader pass (NVDA) over the cover, contents and a table-heavy page (manual)
+
+**M9 Packaging**
+
+- [x] `--help` polish, README install/usage, CHANGELOG
+- [ ] Release pipeline (8.7) exercised with a real tag; archives, `SHA256SUMS`, draft release
+
+### Implementation notes (2026-11-18)
+
+Findings and deviations from the text below, in the order they matter:
+
+- **N1. Typst quirks found by the property tests**, now handled in `escape.rs` and recorded in
+  `proptest-regressions/`: a `-` before a digit becomes a minus sign (U+2212; `COVID-19` would not
+  keep its hyphen), so it is escaped; after an embedded expression such as `#strong[x]`, a following
+  `.name` is parsed as a field access, `(` as a call and `;` is swallowed as a terminator, so those
+  are escaped when they come first (`Position::AfterExpr`); a digit followed by a quote becomes a
+  prime. Inline emphasis uses `#emph[…]`/`#strong[…]`, not `_`/`*`, because Typst ignores
+  intra-word delimiters.
+- **N2. Page titles.** Decision D12 (new): every page gets a heading. If the Markdown body has no
+  heading, the frontmatter `title` is emitted as an H1. The contents list one entry per page, so
+  `test_contents_omits_pages_without_headings` does not exist.
+- **N3. Code is emitted as `#raw("…", block: true, lang: "…")`**, a string literal, not as backtick
+  delimiters (design B of 7.5, used where it costs nothing). Nothing in code can be read as markup
+  and no delimiter can be forged. Prose still uses design A.
+- **N4. Diagram sizing** (decision D13, new). `width: 100%` blew small diagrams up until they were
+  clipped by the page height. Body images are scaled to the text width; diagrams are never scaled
+  _above_ their natural size; both are capped at 85 % of the text height (`fitted-image` in
+  `template.typ`). The theme's 22.4 px font assumes wide `mmdc` output that is scaled down.
+- **N5. M7 gate, native backend (`mermaid-rs-renderer` 0.3.1), reviewed from rendered PDF pages at
+  60 dpi.** It needs the theme's `"22.4px"` rewritten as a number (`normalise_theme`). Verdict per
+  type: flowchart, flowchart-lr, sequence, class, state **pass** (theme colours and Libertinus
+  Serif applied, no `foreignObject`); gantt is legible but crude; **er** has labels overlapping the
+  relation lines, **pie** has near-white slices, **mindmap** uses off-theme bright colours: these three
+  **fail**. **Update, same day, with `mmdc` 12.2.0 installed:** the side-by-side comparison on nine
+  types (flowchart, flowchart-lr, sequence, class, state, er, pie, mindmap, gantt) showed that
+  `mmdc` renders all nine on-theme with Libertinus Serif and no `foreignObject`. Native flowchart and
+  state diagrams are equivalent (native has one crossing edge in the sample); native **sequence**
+  (grey, off-theme participant boxes) and **class** (members run together on one line) lose the
+  comparison. Outcome: `backend = "native"` renders only `graph|flowchart|stateDiagram` natively
+  (`NATIVE_KINDS`) and hands every other type to the external `command` (`RoutingRenderer`);
+  `diagrams.native_only = true` renders everything natively. `merman` was not evaluated.
+  Two things only the real `mmdc` showed: mermaid 11+ ignores `flowchart.htmlLabels` and needs a
+  top-level `htmlLabels: false`, else every flowchart carries `<foreignObject>` and hideo (correctly)
+  fails with E004; and the SVG's CSS font comes from top-level `fontFamily`, not
+  `themeVariables.fontFamily` (W010 otherwise). `assets/mermaid-theme.json` sets both. On Windows
+  `command = "mmdc"` finds the npm `.cmd` shim. Remaining W010 from `mmdc`: a `&quot` fragment in
+  sequence diagrams and `sans-serif` in gantt charts (generic fallbacks, harmless).
+- **N11. 120-diagram run with `mmdc`** (`scratchpad/gen120.py`: 120 distinct diagrams over the nine
+  types of N5, four per page; 84-page PDF). 0 errors; cold 25 to 27 s, warm 1 s (the cache lives in
+  `<output>/.hideo-cache`, so a different `--output` is a cold build). The run found two things: the
+  font check misread mermaid's `font-family: &quot;Libertinus Serif&quot;, ...` and warned wrongly
+  (fixed in `font_problems`, with a test); and **class and ER diagrams were not reproducible**:
+  `look: "neo"` adds random outline jitter, 13 of 120 SVGs differed between runs. The theme now sets
+  `handDrawnSeed: 1`, after which two cold builds give identical PDFs. Remaining 13 W010 notices
+  are gantt charts, where mermaid hardcodes `font-family="sans-serif"` on its text.
+- **N6. Performance** (Windows 11, 32 logical cores, release build, `scripts/gen-corpus.py`:
+  230 pages, 309 MB of JPEG heroes, 3 tiers, diagrams off): cold build **12.9 s**, warm build
+  **2.3 s**, cold with `--jobs 1` 69.8 s (about 0.25 s per image, decode plus Lanczos3 plus encode).
+  The goal (≤ 60 s cold, ≤ 10 s warm) is met with the default thread count, so `fast_image_resize`
+  is not adopted. Each PDF is about 50 MB because the JPEGs are embedded unchanged.
+- **N7. Test-plan deviations.** "Missing alt text is E006" cannot be provoked, because hideo always
+  supplies alt text or marks an image as an artifact; the equivalent is `test_missing_glyph_is_e006…`
+  (PDF/UA turns glyphs missing from the embedded fonts into errors; `check` warns first with the new
+  W011). `lopdf` text extraction includes text inside `/Artifact` sequences, so the leader test inspects
+  marked content (`text_ops`) instead of the extracted text. `image-compare` was dropped: the visual
+  test counts differing pixels itself. The diagram fixtures use a stand-in script for `mmdc`; the CI
+  fixture `full/` sets `diagrams.backend = "off"`.
+- **N8. Added codes.** W009 (non-descriptive link text), W010 (notices: skipped tier, dropped code
+  language, diagrams off, Typst warnings), W011 (characters not in the embedded fonts).
+- **N9. Observation about Appendix B, not changed.** The spec asks for paragraph spacing 0.65 em
+  and leading 0.75 em. In Typst both are gaps, so paragraphs are _closer_ together than the lines
+  inside them and paragraphs are hardly separated. It is implemented as specified; confirm that this
+  is the intended look.
+- **N10. Not implemented.** `merman` evaluation, `--verbose` beyond a summary line, a check that a
+  non-breaking table row really is not split, native-diagram contact sheet tooling.
+
+> Items that depend on external systems (CI runs on Semaphore/AppVeyor, veraPDF, NVDA, `mmdc`
+> on the real corpus, a release tag) are tracked here but cannot be completed from a local
+> session; they are left unchecked on purpose.
+
+---
+
 > **Status of this document.** Revised 2026-11-17. Every crate version, API signature and
 > platform claim below was checked on that date against crates.io, the published crate sources
 > (`typst*` 0.15.1, `pulldown-cmark` 0.13.4/0.13.6, `mermaid-rs-renderer` 0.3.1, `lopdf` 0.47)
@@ -19,17 +181,17 @@ prioritizes reproducibility, clear diagnostics, and strict adherence to a narrow
 
 **Key decisions in this revision:**
 
-| Area | Decision |
-|------|----------|
-| Typst integration | `typst`, `typst-layout`, `typst-pdf`, `typst-kit` all pinned to `=0.15.1`. Use the **reworked** `typst-kit` (`FontStore`, `FileStore`, `FileLoader`), not the pre-0.15 `FontSearcher`. |
-| Generated Typst layout | One virtual `.typ` file per page, pulled in by `#include`. Typst diagnostics then name the page directly; only the line needs mapping (see 7.9). |
-| Fonts | `typst-kit` `embedded-fonts`: Libertinus Serif, New Computer Modern (+ Math), DejaVu Sans Mono. No sans-serif is embedded; the visual spec only needs the serif and the mono. |
-| Markdown parser | `pulldown-cmark` **0.13.6** (not 0.13.4). The "OffsetIter control-character panic" from the previous revision could not be substantiated and is dropped; defensive `catch_unwind` stays (see 5.1). |
-| Diagrams | Backend is a command contract (`mmdc`-compatible CLI). `mmdr` (mermaid-rs-renderer) has the same `-i/-o/-c/-e` flags, so one config covers both. In-process `mmdr` and `merman` are candidates for the M7 gate. SVGs containing `<foreignObject>` are rejected because Typst renders them incorrectly. |
-| CI | **Semaphore** for Linux (x86_64, ARM) and macOS (Apple Silicon); **AppVeyor** for Windows (Semaphore Cloud has no Windows agents). Two config files: `.semaphore/semaphore.yml` and `appveyor.yml` (8.6). |
-| Release | Plain `cargo build --release` + archive + checksum on Semaphore (Linux, macOS) and on AppVeyor (Windows). `cargo-dist` is dropped: its only CI backend is GitHub Actions. |
-| Accessibility | Tagged PDF is on by default and PDF/UA-1 validation is on by default (7.10). Table header rows are tagged as headers **only if** the emitter wraps them in `table.header(...)`; that is now a hard requirement (F16, F24). |
-| Repo state | The repo is currently the leftover of the old Node.js project (see Appendix E for cleanup). |
+| Area                   | Decision                                                                                                                                                                                                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Typst integration      | `typst`, `typst-layout`, `typst-pdf`, `typst-kit` all pinned to `=0.15.1`. Use the **reworked** `typst-kit` (`FontStore`, `FileStore`, `FileLoader`), not the pre-0.15 `FontSearcher`.                                                                                                                 |
+| Generated Typst layout | One virtual `.typ` file per page, pulled in by `#include`. Typst diagnostics then name the page directly; only the line needs mapping (see 7.9).                                                                                                                                                       |
+| Fonts                  | `typst-kit` `embedded-fonts`: Libertinus Serif, New Computer Modern (+ Math), DejaVu Sans Mono. No sans-serif is embedded; the visual spec only needs the serif and the mono.                                                                                                                          |
+| Markdown parser        | `pulldown-cmark` **0.13.6** (not 0.13.4). The "OffsetIter control-character panic" from the previous revision could not be substantiated and is dropped; defensive `catch_unwind` stays (see 5.1).                                                                                                     |
+| Diagrams               | Backend is a command contract (`mmdc`-compatible CLI). `mmdr` (mermaid-rs-renderer) has the same `-i/-o/-c/-e` flags, so one config covers both. In-process `mmdr` and `merman` are candidates for the M7 gate. SVGs containing `<foreignObject>` are rejected because Typst renders them incorrectly. |
+| CI                     | **Semaphore** for Linux (x86_64, ARM) and macOS (Apple Silicon); **AppVeyor** for Windows (Semaphore Cloud has no Windows agents). Two config files: `.semaphore/semaphore.yml` and `appveyor.yml` (8.6).                                                                                              |
+| Release                | Plain `cargo build --release` + archive + checksum on Semaphore (Linux, macOS) and on AppVeyor (Windows). `cargo-dist` is dropped: its only CI backend is GitHub Actions.                                                                                                                              |
+| Accessibility          | Tagged PDF is on by default and PDF/UA-1 validation is on by default (7.10). Table header rows are tagged as headers **only if** the emitter wraps them in `table.header(...)`; that is now a hard requirement (F16, F24).                                                                             |
+| Repo state             | The repo is currently the leftover of the old Node.js project (see Appendix E for cleanup).                                                                                                                                                                                                            |
 
 ---
 
@@ -86,33 +248,33 @@ Parse Markdown with `pulldown-cmark`, emit Typst markup, compile in-process with
 
 ### 3.3 Verified Facts and Consequences
 
-| Fact (verified in 0.15.1 sources) | Consequence |
-|-----------------------------------|-------------|
-| `typst::compile<T: Output>(world: &dyn World) -> Warned<SourceResult<T>>` | Call as `compile::<PagedDocument>(&world)`. `PagedDocument` lives in `typst_layout`, which is **not** re-exported by `typst`, so add `typst-layout` as a dependency. |
-| `typst_pdf::pdf(&PagedDocument, &PdfOptions) -> SourceResult<Vec<u8>>` | Returns a `Result`, not bytes. Map its errors like compile errors. |
-| `PdfOptions { ident, creator, timestamp: Option<typst_pdf::Timestamp>, page_ranges, standards, tagged, pretty }`, `Default` available | The timestamp is Typst's own `Timestamp::new_utc(Datetime)`, **not** a `chrono` type. `tagged` defaults to `true` (adds accessibility tags; keep). |
-| `Timestamp` is used only if the document's `date` is `auto`; with `timestamp: None` and `auto` no date is written at all. `ident: Smart::Auto` derives the PDF ID from title + author | Reproducibility needs only a fixed timestamp (or none). The previous plan's "post-process the PDF to normalize dates" is not needed; the reproducibility test (F19) proves it. |
-| `World::today(&self, offset: Option<typst::foundations::Duration>) -> Option<Datetime>` | The previous plan had `Option<i64>`. Return a fixed date. |
-| `FileId` is now `FileId::new(RootedPath::new(VirtualRoot::Project, VirtualPath::new("pages/a.typ")?))` (interned, `NonZeroU16`, so at most 65,535 distinct files per process) | The previous plan's `FileId::new(None, VirtualPath::new(..))` does not compile. `VirtualPath::new(&str)` returns a `Result`; use `VirtualPath::virtualize(root, os_path)` to turn OS paths into virtual ones (it handles Windows separators). Budget: ≥ 230 pages + images per process is far below the limit, but generate one `FileId` per distinct file, never per use. |
-| `typst_kit::fonts::embedded()` yields Libertinus Serif, New Computer Modern, New Computer Modern Math, DejaVu Sans Mono (doc comment in `fonts.rs`) | Confirms the font claim. `FontSearcher` / `include_system_fonts` do not exist in 0.15. |
-| `typst-kit` features are all off by default. Needed: `embedded-fonts`. **Not** needed: `datetime`, `emit-diagnostics`, `scan-fonts`, `system-*`, `universe-packages`, `system-downloader`, `watcher` | Smaller build, no network or OpenSSL. |
-| Typst warns on SVGs containing `<foreignObject>` ("might render incorrectly", typst/typst#1421) | Gate diagram output (7.7). |
-| SVG text is resolved through the `World`'s font book | SVG `font-family` must name an embedded font (7.7). |
-| `typst`/`typst-kit` MSRV 1.92, edition 2024 | `rust-version = "1.92"`, `edition = "2024"`. |
+| Fact (verified in 0.15.1 sources)                                                                                                                                                                    | Consequence                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `typst::compile<T: Output>(world: &dyn World) -> Warned<SourceResult<T>>`                                                                                                                            | Call as `compile::<PagedDocument>(&world)`. `PagedDocument` lives in `typst_layout`, which is **not** re-exported by `typst`, so add `typst-layout` as a dependency.                                                                                                                                                                                                       |
+| `typst_pdf::pdf(&PagedDocument, &PdfOptions) -> SourceResult<Vec<u8>>`                                                                                                                               | Returns a `Result`, not bytes. Map its errors like compile errors.                                                                                                                                                                                                                                                                                                         |
+| `PdfOptions { ident, creator, timestamp: Option<typst_pdf::Timestamp>, page_ranges, standards, tagged, pretty }`, `Default` available                                                                | The timestamp is Typst's own `Timestamp::new_utc(Datetime)`, **not** a `chrono` type. `tagged` defaults to `true` (adds accessibility tags; keep).                                                                                                                                                                                                                         |
+| `Timestamp` is used only if the document's `date` is `auto`; with `timestamp: None` and `auto` no date is written at all. `ident: Smart::Auto` derives the PDF ID from title + author                | Reproducibility needs only a fixed timestamp (or none). The previous plan's "post-process the PDF to normalize dates" is not needed; the reproducibility test (F19) proves it.                                                                                                                                                                                             |
+| `World::today(&self, offset: Option<typst::foundations::Duration>) -> Option<Datetime>`                                                                                                              | The previous plan had `Option<i64>`. Return a fixed date.                                                                                                                                                                                                                                                                                                                  |
+| `FileId` is now `FileId::new(RootedPath::new(VirtualRoot::Project, VirtualPath::new("pages/a.typ")?))` (interned, `NonZeroU16`, so at most 65,535 distinct files per process)                        | The previous plan's `FileId::new(None, VirtualPath::new(..))` does not compile. `VirtualPath::new(&str)` returns a `Result`; use `VirtualPath::virtualize(root, os_path)` to turn OS paths into virtual ones (it handles Windows separators). Budget: ≥ 230 pages + images per process is far below the limit, but generate one `FileId` per distinct file, never per use. |
+| `typst_kit::fonts::embedded()` yields Libertinus Serif, New Computer Modern, New Computer Modern Math, DejaVu Sans Mono (doc comment in `fonts.rs`)                                                  | Confirms the font claim. `FontSearcher` / `include_system_fonts` do not exist in 0.15.                                                                                                                                                                                                                                                                                     |
+| `typst-kit` features are all off by default. Needed: `embedded-fonts`. **Not** needed: `datetime`, `emit-diagnostics`, `scan-fonts`, `system-*`, `universe-packages`, `system-downloader`, `watcher` | Smaller build, no network or OpenSSL.                                                                                                                                                                                                                                                                                                                                      |
+| Typst warns on SVGs containing `<foreignObject>` ("might render incorrectly", typst/typst#1421)                                                                                                      | Gate diagram output (7.7).                                                                                                                                                                                                                                                                                                                                                 |
+| SVG text is resolved through the `World`'s font book                                                                                                                                                 | SVG `font-family` must name an embedded font (7.7).                                                                                                                                                                                                                                                                                                                        |
+| `typst`/`typst-kit` MSRV 1.92, edition 2024                                                                                                                                                          | `rust-version = "1.92"`, `edition = "2024"`.                                                                                                                                                                                                                                                                                                                               |
 
 ### 3.4 Version Pinning Strategy
 
 ```toml
 [dependencies]
-typst        = "=0.15.1"
-typst-layout = "=0.15.1"   # PagedDocument
-typst-pdf    = "=0.15.1"
-typst-kit    = { version = "=0.15.1", features = ["embedded-fonts"] }
+typst = "=0.15.1"
+typst-layout = "=0.15.1" # PagedDocument
+typst-pdf = "=0.15.1"
+typst-kit = { version = "=0.15.1", features = ["embedded-fonts"] }
 # typst-assets is pulled in transitively by `embedded-fonts`; do not depend on it directly.
 # typst::syntax re-exports typst-syntax (FileId, Source, VirtualPath, ...).
 
 [dev-dependencies]
-typst-render = "=0.15.1"   # render pages to PNG for visual snapshot tests
+typst-render = "=0.15.1" # render pages to PNG for visual snapshot tests
 ```
 
 All Typst crates move in lock-step. Renovate must bump them as one group and **not** automerge
@@ -132,32 +294,32 @@ The original F1–F23 list is **not** in this file. The table below is reconstru
 milestone table, test names and Appendix B. **Confirm it against the original** before starting;
 mismatches only affect labels, not design.
 
-| ID | Requirement | Milestone |
-|----|-------------|-----------|
-| F1 | Tiers from config; one PDF per tier; empty tier skipped with warning | M1 |
-| F2 | Page discovery (ignore prefixes at any depth, `.md` only) | M1 |
-| F3 | Page order: folders and files, case-insensitive natural order | M1 |
-| F4 | Frontmatter: `title`, `hero`, optional `subtitle`, `author`, `lang`, `hero_alt` | M1 |
-| F5 | Heading IDs: slug or explicit `{#id}`, unique per page | M2 |
-| F6 | Page labels, unique across the tier | M2 |
-| F7 | Link rewriting (internal, cross-page, anchors, external, non-Markdown files) | M2 |
-| F8 | Unresolved-link report, grouped by PDF, `--deny-unresolved` | M2 |
-| F9 | Markdown profile → Typst (paragraphs, emphasis, lists, quotes, code, rules, headings) | M4 |
-| F10 | Page head (hero pulled into margins, subtitle, author line) | M3/M6 |
-| F11 | Hero image pipeline (resolve, scale, JPEG, cache, placeholder) | M3 |
-| F12 | Cover (full-bleed, panel, tier line) and contents hero | M3/M6 |
-| F13 | Contents page (two columns, groups, dotted leaders, page numbers) | M6 |
-| F14 | Footer page numbers on every page except the cover | M6 |
-| F15 | Diagrams (backend, cache, error format) | M7 |
-| F16 | Tables (width algorithm, font reduction, long-string breaks, repeating header) | M5 |
-| F17 | Lead-in paragraphs | M4 |
-| F18 | External-link marker (arrow icon) | M4 |
-| F19 | Reproducible output (`SOURCE_DATE_EPOCH`) | M6 |
-| F20 | Diagnostics mapped to page and line | M6 |
-| F21 | CLI: `build`, `check`, `list`, exit codes, `--help` | M1/M9 |
-| F22 | Configuration file + validation | M1 |
-| F23 | Check mode (no PDF written, JSON report) | M1/M9 |
-| F24 | **(new)** Accessible PDF: tagged, PDF/UA-1, table headers, alt text, language, outline | M4/M5/M6 |
+| ID  | Requirement                                                                            | Milestone |
+| --- | -------------------------------------------------------------------------------------- | --------- |
+| F1  | Tiers from config; one PDF per tier; empty tier skipped with warning                   | M1        |
+| F2  | Page discovery (ignore prefixes at any depth, `.md` only)                              | M1        |
+| F3  | Page order: folders and files, case-insensitive natural order                          | M1        |
+| F4  | Frontmatter: `title`, `hero`, optional `subtitle`, `author`, `lang`, `hero_alt`        | M1        |
+| F5  | Heading IDs: slug or explicit `{#id}`, unique per page                                 | M2        |
+| F6  | Page labels, unique across the tier                                                    | M2        |
+| F7  | Link rewriting (internal, cross-page, anchors, external, non-Markdown files)           | M2        |
+| F8  | Unresolved-link report, grouped by PDF, `--deny-unresolved`                            | M2        |
+| F9  | Markdown profile → Typst (paragraphs, emphasis, lists, quotes, code, rules, headings)  | M4        |
+| F10 | Page head (hero pulled into margins, subtitle, author line)                            | M3/M6     |
+| F11 | Hero image pipeline (resolve, scale, JPEG, cache, placeholder)                         | M3        |
+| F12 | Cover (full-bleed, panel, tier line) and contents hero                                 | M3/M6     |
+| F13 | Contents page (two columns, groups, dotted leaders, page numbers)                      | M6        |
+| F14 | Footer page numbers on every page except the cover                                     | M6        |
+| F15 | Diagrams (backend, cache, error format)                                                | M7        |
+| F16 | Tables (width algorithm, font reduction, long-string breaks, repeating header)         | M5        |
+| F17 | Lead-in paragraphs                                                                     | M4        |
+| F18 | External-link marker (arrow icon)                                                      | M4        |
+| F19 | Reproducible output (`SOURCE_DATE_EPOCH`)                                              | M6        |
+| F20 | Diagnostics mapped to page and line                                                    | M6        |
+| F21 | CLI: `build`, `check`, `list`, exit codes, `--help`                                    | M1/M9     |
+| F22 | Configuration file + validation                                                        | M1        |
+| F23 | Check mode (no PDF written, JSON report)                                               | M1/M9     |
+| F24 | **(new)** Accessible PDF: tagged, PDF/UA-1, table headers, alt text, language, outline | M4/M5/M6  |
 
 ### 4.1 Clarifications and Additions
 
@@ -165,15 +327,17 @@ mismatches only affect labels, not design.
 (~80 lines). Rejected alternatives: `gray_matter` (pulls a YAML engine and accepts far more than the
 profile allows), `serde_yml`/`yaml-rust2` (full YAML contradicts "anything else is an error";
 `serde_yaml` itself is archived).
+
 - Strip a UTF-8 BOM; normalize `\r\n` and lone `\r` to `\n` **once, when reading the file**, so every
   later byte offset refers to the normalized text.
-- Quoted values support `\"` inside double quotes and `\'` inside single quotes. Split on the *first*
+- Quoted values support `\"` inside double quotes and `\'` inside single quotes. Split on the _first_
   colon only. Duplicate keys: first wins. Indented lines are ignored.
 - Error if `---` opens but never closes: report page and line 1.
 - Record `body_line_offset` (number of frontmatter lines incl. both `---`) so body line numbers
   map to file line numbers by addition.
 
 **F5 (Heading IDs).**
+
 - Slug: lowercase; keep `char::is_alphanumeric()`, `_`, `-`; spaces become hyphens, runs of spaces do
   **not** collapse; other punctuation is dropped. Empty result → `section`. Duplicates get `-1`,
   `-2`, … in document order.
@@ -186,6 +350,7 @@ profile allows), `serde_yml`/`yaml-rust2` (full YAML contradicts "anything else 
   through it.
 
 **F7 (Link rewriting).**
+
 - External if the destination starts with a scheme matching `^[A-Za-z][A-Za-z0-9+.-]+:` (two or more
   scheme characters, so `C:\x` is not a scheme) or `//`. Also `mailto:`. These become
   `#link("url")[…]` and get the arrow marker (F18) unless the scheme is `mailto`.
@@ -214,6 +379,7 @@ leader: `box(width: 1fr, repeat[.])`. Cover has `set page(numbering: none)`; the
 at 1 on the contents page (**decision D6**: or on the cover?).
 
 **F15 (Diagrams, error format).**
+
 ```
 error: diagram failed to render
   page: required/01_intro.md
@@ -222,9 +388,11 @@ error: diagram failed to render
   backend: external (mmdc)
   reason: <stderr, last 10 lines>
 ```
+
 First line truncated to 60 characters. Line is the Markdown line of the opening fence.
 
 **F19 (Reproducibility).**
+
 - `SOURCE_DATE_EPOCH` (seconds, UTC). If set and invalid → exit 2. If unset use `946684800`
   (2000-01-01T00:00:00Z).
 - Convert with `chrono::DateTime::from_timestamp(secs, 0)` (add `chrono` with
@@ -251,16 +419,16 @@ W008 missing diagram alt text, E006 PDF/UA validation failure) so tests can asse
 
 ## 5. Markdown Profile (Clarified)
 
-| Construct | Clarification |
-|-----------|---------------|
-| Parser options | Start from `Options::empty()` (CommonMark). **Enable** `ENABLE_TABLES` and `ENABLE_HEADING_ATTRIBUTES` (needed for `{#id}`; without it `{#id}` is literal text). Enable `ENABLE_STRIKETHROUGH`, `ENABLE_FOOTNOTES`, `ENABLE_TASKLISTS`, `ENABLE_DEFINITION_LIST`, `ENABLE_SUPERSCRIPT`, `ENABLE_SUBSCRIPT` **only to detect them** and raise an error naming page and line. (The previous plan said pulldown-cmark "parses some of these by default"; it does not: every extension is opt-in.) |
-| Dollar signs | Always literal. Never enable `ENABLE_MATH`. |
-| Metadata blocks | Do not enable `ENABLE_*_METADATA_BLOCKS`; frontmatter is stripped by hideo's own parser first. A second `---` block in the body is just a thematic break. |
-| Inline HTML | `Event::InlineHtml` → warning, text dropped; `Event::Html` inside `Tag::HtmlBlock` → error. |
-| HTML comments | A whole block matching `<!-- … -->` is dropped silently. |
-| Smart punctuation | Do **not** enable `ENABLE_SMART_PUNCTUATION`. Typst's markup already converts `...` → `…`, `--` → en dash, `---` → em dash, `-?` → soft hyphen and applies smart quotes, so **no manual `...` replacement is needed** (the previous plan asked for one). The escape table (7.5) therefore must escape these sequences when they occur literally in code spans and raw blocks, and must decide whether literal `--` in prose is allowed to become an en dash (recommended: yes, same as smart punctuation). |
-| Images in the body | `Tag::Image` is not specified anywhere in the original requirements. **Decision D4.** Until decided: error "body images are not supported". |
-| Line numbers | Use `Parser::new_ext(body, opts).into_offset_iter()`; build a `Vec<usize>` of line starts once per page and `binary_search` each event's byte offset. Line = `body_line_offset + index + 1`. |
+| Construct          | Clarification                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Parser options     | Start from `Options::empty()` (CommonMark). **Enable** `ENABLE_TABLES` and `ENABLE_HEADING_ATTRIBUTES` (needed for `{#id}`; without it `{#id}` is literal text). Enable `ENABLE_STRIKETHROUGH`, `ENABLE_FOOTNOTES`, `ENABLE_TASKLISTS`, `ENABLE_DEFINITION_LIST`, `ENABLE_SUPERSCRIPT`, `ENABLE_SUBSCRIPT` **only to detect them** and raise an error naming page and line. (The previous plan said pulldown-cmark "parses some of these by default"; it does not: every extension is opt-in.)             |
+| Dollar signs       | Always literal. Never enable `ENABLE_MATH`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Metadata blocks    | Do not enable `ENABLE_*_METADATA_BLOCKS`; frontmatter is stripped by hideo's own parser first. A second `---` block in the body is just a thematic break.                                                                                                                                                                                                                                                                                                                                                  |
+| Inline HTML        | `Event::InlineHtml` → warning, text dropped; `Event::Html` inside `Tag::HtmlBlock` → error.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| HTML comments      | A whole block matching `<!-- … -->` is dropped silently.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Smart punctuation  | Do **not** enable `ENABLE_SMART_PUNCTUATION`. Typst's markup already converts `...` → `…`, `--` → en dash, `---` → em dash, `-?` → soft hyphen and applies smart quotes, so **no manual `...` replacement is needed** (the previous plan asked for one). The escape table (7.5) therefore must escape these sequences when they occur literally in code spans and raw blocks, and must decide whether literal `--` in prose is allowed to become an en dash (recommended: yes, same as smart punctuation). |
+| Images in the body | `Tag::Image` is not specified anywhere in the original requirements. **Decision D4.** Until decided: error "body images are not supported".                                                                                                                                                                                                                                                                                                                                                                |
+| Line numbers       | Use `Parser::new_ext(body, opts).into_offset_iter()`; build a `Vec<usize>` of line starts once per page and `binary_search` each event's byte offset. Line = `body_line_offset + index + 1`.                                                                                                                                                                                                                                                                                                               |
 
 ### 5.1 pulldown-cmark Version and Known Issues
 
@@ -268,6 +436,7 @@ W008 missing diagram alt text, E006 PDF/UA validation failure) so tests can asse
 `getopts` and `html` are for the bundled CLI and HTML writer; hideo needs neither). MSRV 1.71.
 
 What the release notes actually say (GitHub releases, checked 2026-11-17):
+
 - 0.13.4: "Fix `panic` in specific cases with `TightParagraph`."
 - 0.13.5: backports "security issues" fixed on `main`; the backported commits concern **quadratic
   parse time** (a line of `*a_`; `[^` on every line with footnotes enabled; many blank lines) and a
@@ -277,6 +446,7 @@ What the release notes actually say (GitHub releases, checked 2026-11-17):
 The "OffsetIter panics on NUL / VT / FF in link reference definitions" claim from the previous
 revision **has no source** and is removed. The real risk is smaller and different: a hostile or
 unlucky input can be slow or panic. Mitigations, all cheap:
+
 1. Use 0.13.6 or later; monitor releases (Renovate).
 2. Wrap the parse + event walk of each page in `std::panic::catch_unwind`; report E005-style error
    naming the page. Set `panic = "unwind"` (the default; do **not** use `panic = "abort"` in the
@@ -292,48 +462,48 @@ unlucky input can be slow or panic. Mitigations, all cheap:
 
 Versions are the latest stable on crates.io on 2026-11-17.
 
-| Crate | Version | Use | Note |
-|-------|---------|-----|------|
-| `clap` | 4.6 | CLI | `derive` feature |
-| `serde` | 1 | Config, reports | `derive` feature (no separate `serde_derive` dependency) |
-| `toml` | **1.2** | Config file | The previous plan said 0.8; 1.x is current (TOML 1.1). `deny_unknown_fields` on every config struct satisfies `test_config_unknown_key_errors` |
-| `serde_json` | 1 | JSON output | |
-| `pulldown-cmark` | **0.13.6** | Markdown parsing | `default-features = false`; see 5.1 |
-| `typst`, `typst-layout`, `typst-pdf`, `typst-kit` | **=0.15.1** | Compiler | See 3.4 |
-| `image` | 0.25 (≥ 0.25.10) | Hero decode/resize/encode | `default-features = false, features = ["jpeg", "png"]` (add `webp` only if sources use it) |
-| `camino` | 1.2 | UTF-8 paths (`Utf8PathBuf`) | Typst only takes `&str` virtual paths; reject non-UTF-8 file names once at discovery instead of everywhere |
-| `percent-encoding` | 2.3 | Decode `%20` in links | |
-| `walkdir` | 2.5 | Page discovery | Stable but unchanged since 2024; fine |
-| `alphanumeric-sort` | 1.5 | Natural ordering | **(verify)** it ignores case as required by `test_page_order_case_insensitive_natural`; otherwise compare `to_lowercase()` keys with a hand-written ~30-line natural comparator. Do not use `natord` (last release 2015) |
-| `rayon` | 1.12 | Parallel image/diagram work | Collect in input order (F19) |
-| `blake3` | 1.8 | Cache keys | |
-| `anyhow`, `thiserror` | 1 / 2 | Errors | `thiserror` for the typed page+line error, `anyhow` only in `main` |
-| `chrono` | 0.4 | `SOURCE_DATE_EPOCH` → civil date | `default-features = false, features = ["std"]`. Could be replaced by a 12-line civil-from-days function to save a dependency |
-| `tempfile` | 3.27 | External diagram scratch | |
-| `wait-timeout` | 0.2 | 30 s per-diagram timeout | `std::process::Child` has no timeout; this is the small, boring answer |
-| `tracing` + `tracing-subscriber` | 0.1 / 0.3 | Logging | Optional. `-v` can be served by plain `eprintln!` until M8 |
-| **dev:** `assert_cmd` | 2.2 | CLI tests | |
-| **dev:** `predicates` | 3.1 | CLI assertions | |
-| **dev:** `insta` | 1.49 | Snapshot tests | |
-| **dev:** `proptest` | 1.12 | Property tests | |
-| **dev:** `lopdf` | **0.47** | PDF inspection | MSRV 1.88. `Document::load_mem`, `get_pages()`, `get_page_annotations(page_id)` and `extract_text(&[page_numbers])` all exist in 0.47 (the previous plan said 0.44) |
-| **dev:** `typst-render` | =0.15.1 | Render pages to PNG | Replaces the `pdftoppm` dependency in the visual review (8.5) and lets snapshots run on every OS |
-| **dev:** `image-compare` | 0.5 | Tolerant image diff | Optional, for PNG snapshots across OSes (font hinting is not an issue because fonts are embedded, but allow ≤ 0.1 % pixels) |
+| Crate                                             | Version          | Use                              | Note                                                                                                                                                                                                                     |
+| ------------------------------------------------- | ---------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `clap`                                            | 4.6              | CLI                              | `derive` feature                                                                                                                                                                                                         |
+| `serde`                                           | 1                | Config, reports                  | `derive` feature (no separate `serde_derive` dependency)                                                                                                                                                                 |
+| `toml`                                            | **1.2**          | Config file                      | The previous plan said 0.8; 1.x is current (TOML 1.1). `deny_unknown_fields` on every config struct satisfies `test_config_unknown_key_errors`                                                                           |
+| `serde_json`                                      | 1                | JSON output                      |                                                                                                                                                                                                                          |
+| `pulldown-cmark`                                  | **0.13.6**       | Markdown parsing                 | `default-features = false`; see 5.1                                                                                                                                                                                      |
+| `typst`, `typst-layout`, `typst-pdf`, `typst-kit` | **=0.15.1**      | Compiler                         | See 3.4                                                                                                                                                                                                                  |
+| `image`                                           | 0.25 (≥ 0.25.10) | Hero decode/resize/encode        | `default-features = false, features = ["jpeg", "png"]` (add `webp` only if sources use it)                                                                                                                               |
+| `camino`                                          | 1.2              | UTF-8 paths (`Utf8PathBuf`)      | Typst only takes `&str` virtual paths; reject non-UTF-8 file names once at discovery instead of everywhere                                                                                                               |
+| `percent-encoding`                                | 2.3              | Decode `%20` in links            |                                                                                                                                                                                                                          |
+| `walkdir`                                         | 2.5              | Page discovery                   | Stable but unchanged since 2024; fine                                                                                                                                                                                    |
+| `alphanumeric-sort`                               | 1.5              | Natural ordering                 | **(verify)** it ignores case as required by `test_page_order_case_insensitive_natural`; otherwise compare `to_lowercase()` keys with a hand-written ~30-line natural comparator. Do not use `natord` (last release 2015) |
+| `rayon`                                           | 1.12             | Parallel image/diagram work      | Collect in input order (F19)                                                                                                                                                                                             |
+| `blake3`                                          | 1.8              | Cache keys                       |                                                                                                                                                                                                                          |
+| `anyhow`, `thiserror`                             | 1 / 2            | Errors                           | `thiserror` for the typed page+line error, `anyhow` only in `main`                                                                                                                                                       |
+| `chrono`                                          | 0.4              | `SOURCE_DATE_EPOCH` → civil date | `default-features = false, features = ["std"]`. Could be replaced by a 12-line civil-from-days function to save a dependency                                                                                             |
+| `tempfile`                                        | 3.27             | External diagram scratch         |                                                                                                                                                                                                                          |
+| `wait-timeout`                                    | 0.2              | 30 s per-diagram timeout         | `std::process::Child` has no timeout; this is the small, boring answer                                                                                                                                                   |
+| `tracing` + `tracing-subscriber`                  | 0.1 / 0.3        | Logging                          | Optional. `-v` can be served by plain `eprintln!` until M8                                                                                                                                                               |
+| **dev:** `assert_cmd`                             | 2.2              | CLI tests                        |                                                                                                                                                                                                                          |
+| **dev:** `predicates`                             | 3.1              | CLI assertions                   |                                                                                                                                                                                                                          |
+| **dev:** `insta`                                  | 1.49             | Snapshot tests                   |                                                                                                                                                                                                                          |
+| **dev:** `proptest`                               | 1.12             | Property tests                   |                                                                                                                                                                                                                          |
+| **dev:** `lopdf`                                  | **0.47**         | PDF inspection                   | MSRV 1.88. `Document::load_mem`, `get_pages()`, `get_page_annotations(page_id)` and `extract_text(&[page_numbers])` all exist in 0.47 (the previous plan said 0.44)                                                      |
+| **dev:** `typst-render`                           | =0.15.1          | Render pages to PNG              | Replaces the `pdftoppm` dependency in the visual review (8.5) and lets snapshots run on every OS                                                                                                                         |
+| **dev:** `image-compare`                          | 0.5              | Tolerant image diff              | Optional, for PNG snapshots across OSes (font hinting is not an issue because fonts are embedded, but allow ≤ 0.1 % pixels)                                                                                              |
 
 ### 6.1 Considered but Deferred or Rejected
 
-| Crate | Verdict |
-|-------|---------|
-| `fast_image_resize` 6.1 | SIMD resize; adopt at M8 **if** the benchmark shows `imageops::resize(Lanczos3)` dominates the 60 s budget. The 260 MB of images is the likely hot spot, so benchmark in M3 already. |
-| `jpeg-rusturbo` 0.9 | Exists (SIMD encoder, Jun 2026) but is small (~10 k downloads). The "~3×" claim in the previous plan is unverified. `jpeg-encoder` 0.7 (pure Rust, widely used) is the safer alternative. Defer until measured. |
-| `comrak` 1.0 | Full AST parser. `pulldown-cmark`'s event stream is enough; revisit only if table handling (M5) becomes unwieldy. |
-| `gray_matter`, `serde_yml`, `yaml-rust2` | Too permissive for F4; see 4.1. |
-| `codespan-reporting`, `ariadne`, `miette`, `annotate-snippets` | `typst_kit::diagnostics::emit` uses codespan 0.11 and would print generated-Typst excerpts, which are meaningless to authors. Print the plain format shown in F15 instead (no dependency). Revisit only if authors ask for source excerpts. |
-| `url` | Not needed: scheme detection is a 3-line regex-free check (F7). |
-| `cargo-dist` 0.34 (binary `dist`) | Rejected: its only CI backend is GitHub Actions. Releases are built by a Semaphore promotion (8.7). |
-| `mermaid-rs-renderer` 0.3.1 (`mmdr`) | Candidate native backend, MIT, pure Rust. Own `Theme` struct plus a Mermaid-style config-file loader (`config::load_config`). README: "may not yet match mermaid-cli in all cases". `default-features = false` drops the CLI and `png` (resvg) features. |
-| `merman` 0.10 | Second candidate native backend (MIT OR Apache-2.0, MSRV 1.87), "parity-focused", targets Mermaid 12.3. Newer and more active than `mmdr`. Docs coverage is thin; no confirmed `themeVariables` support, no stated `<foreignObject>` behaviour. Evaluate in M7. |
-| `pdf-extract`, `pdfium-render`, `hayro` | Alternatives to `lopdf` for PDF text/rendering in tests. `lopdf` + `typst-render` is enough and has no native dependency. |
+| Crate                                                          | Verdict                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fast_image_resize` 6.1                                        | SIMD resize; adopt at M8 **if** the benchmark shows `imageops::resize(Lanczos3)` dominates the 60 s budget. The 260 MB of images is the likely hot spot, so benchmark in M3 already.                                                                            |
+| `jpeg-rusturbo` 0.9                                            | Exists (SIMD encoder, Jun 2026) but is small (~10 k downloads). The "~3×" claim in the previous plan is unverified. `jpeg-encoder` 0.7 (pure Rust, widely used) is the safer alternative. Defer until measured.                                                 |
+| `comrak` 1.0                                                   | Full AST parser. `pulldown-cmark`'s event stream is enough; revisit only if table handling (M5) becomes unwieldy.                                                                                                                                               |
+| `gray_matter`, `serde_yml`, `yaml-rust2`                       | Too permissive for F4; see 4.1.                                                                                                                                                                                                                                 |
+| `codespan-reporting`, `ariadne`, `miette`, `annotate-snippets` | `typst_kit::diagnostics::emit` uses codespan 0.11 and would print generated-Typst excerpts, which are meaningless to authors. Print the plain format shown in F15 instead (no dependency). Revisit only if authors ask for source excerpts.                     |
+| `url`                                                          | Not needed: scheme detection is a 3-line regex-free check (F7).                                                                                                                                                                                                 |
+| `cargo-dist` 0.34 (binary `dist`)                              | Rejected: its only CI backend is GitHub Actions. Releases are built by a Semaphore promotion (8.7).                                                                                                                                                             |
+| `mermaid-rs-renderer` 0.3.1 (`mmdr`)                           | Candidate native backend, MIT, pure Rust. Own `Theme` struct plus a Mermaid-style config-file loader (`config::load_config`). README: "may not yet match mermaid-cli in all cases". `default-features = false` drops the CLI and `png` (resvg) features.        |
+| `merman` 0.10                                                  | Second candidate native backend (MIT OR Apache-2.0, MSRV 1.87), "parity-focused", targets Mermaid 12.3. Newer and more active than `mmdr`. Docs coverage is thin; no confirmed `themeVariables` support, no stated `<foreignObject>` behaviour. Evaluate in M7. |
+| `pdf-extract`, `pdfium-render`, `hayro`                        | Alternatives to `lopdf` for PDF text/rendering in tests. `lopdf` + `typst-render` is enough and has no native dependency.                                                                                                                                       |
 
 ---
 
@@ -394,12 +564,12 @@ rust-version = "1.92"
 
 [features]
 default = []
-native-diagrams = ["dep:mermaid-rs-renderer"]   # or merman, decided at the M7 gate
+native-diagrams = ["dep:mermaid-rs-renderer"] # or merman, decided at the M7 gate
 
 [profile.dev]
 opt-level = 1
 [profile.dev.package."*"]
-opt-level = 3        # Typst in an unoptimized build is very slow; the proptests compile thousands of documents
+opt-level = 3 # Typst in an unoptimized build is very slow; the proptests compile thousands of documents
 
 [profile.release]
 lto = "thin"
@@ -458,6 +628,7 @@ message naming the feature.
 ### 7.4 Configuration
 
 The TOML structure from Appendix A is retained. Validation rules (config.rs):
+
 - `tiers` non-empty, unique, and each a valid folder name (no path separators).
 - `page.width_mm` > `2 * page.margin_x_mm`.
 - `images.jpeg_quality` 1–100; `images.dpi` 72–600.
@@ -493,27 +664,27 @@ swapped in behind the same `fn escape_text(&str, Position) -> String`.
 
 **Text mode escaping:**
 
-| Character / sequence | Escape as | Reason |
-|----------------------|-----------|--------|
-| `\` | `\\` | Typst escape |
-| `#` | `\#` | Markup/script |
-| `$` | `\$` | Math |
-| `@` | `\@` | Reference |
-| `*` | `\*` | Strong |
-| `_` | `\_` | Emphasis |
-| `` ` `` | `` \` `` | Raw |
-| `<` | `\<` | Label |
-| `>` | `\>` | Label end (harmless, kept for symmetry) |
-| `[` `]` | `\[` `\]` | Content block |
-| `~` | `\~` | Non-breaking space |
-| `//` | `\/\/` | Line comment; also stops bare-URL auto-linking (`https://…`) |
-| `/*` and `*/` | `\/*` and `*\/` | Block comment |
-| `=`, `-`, `+`, `/` at line start; `N.` at line start | `\=` `\-` `\+` `\/` `\N.` | Heading, list, enum, term list |
-| `'` `"` | unchanged | Intended: Typst smart quotes |
-| `...`, `--`, `---`, `-?` | unchanged in prose (intended), escaped in code | Typst shorthands |
-| U+200B (zero-width space) | unchanged (never escaped) | Inserted by tables.rs |
-| `\n` inside a paragraph | `\n` | soft break is a space |
-| Hard break | `\` + newline | |
+| Character / sequence                                 | Escape as                                      | Reason                                                       |
+| ---------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| `\`                                                  | `\\`                                           | Typst escape                                                 |
+| `#`                                                  | `\#`                                           | Markup/script                                                |
+| `$`                                                  | `\$`                                           | Math                                                         |
+| `@`                                                  | `\@`                                           | Reference                                                    |
+| `*`                                                  | `\*`                                           | Strong                                                       |
+| `_`                                                  | `\_`                                           | Emphasis                                                     |
+| `` ` ``                                              | `` \` ``                                       | Raw                                                          |
+| `<`                                                  | `\<`                                           | Label                                                        |
+| `>`                                                  | `\>`                                           | Label end (harmless, kept for symmetry)                      |
+| `[` `]`                                              | `\[` `\]`                                      | Content block                                                |
+| `~`                                                  | `\~`                                           | Non-breaking space                                           |
+| `//`                                                 | `\/\/`                                         | Line comment; also stops bare-URL auto-linking (`https://…`) |
+| `/*` and `*/`                                        | `\/*` and `*\/`                                | Block comment                                                |
+| `=`, `-`, `+`, `/` at line start; `N.` at line start | `\=` `\-` `\+` `\/` `\N.`                      | Heading, list, enum, term list                               |
+| `'` `"`                                              | unchanged                                      | Intended: Typst smart quotes                                 |
+| `...`, `--`, `---`, `-?`                             | unchanged in prose (intended), escaped in code | Typst shorthands                                             |
+| U+200B (zero-width space)                            | unchanged (never escaped)                      | Inserted by tables.rs                                        |
+| `\n` inside a paragraph                              | `\n`                                           | soft break is a space                                        |
+| Hard break                                           | `\` + newline                                  |                                                              |
 
 **Raw blocks and inline code:** use a raw delimiter with more backticks than the longest backtick
 run in the content (minimum 3 for blocks, 1 for inline; if the inline content starts or ends with a
@@ -522,6 +693,7 @@ backtick, pad with a space). Language tag: pass the info string through only if 
 built-in syntax set; unknown tags are not an error.
 
 **Property test** (corrected API; the previous snippet did not compile):
+
 ```rust
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(500))]  // 10 000 is too slow for CI; run 10 000 nightly
@@ -535,6 +707,7 @@ proptest! {
     }
 }
 ```
+
 Strengthen it by also asserting that the extracted text of the first frame equals `s` with Typst's
 shorthand conversions applied (walk `FrameItem::Text`), otherwise silent mis-escapes (e.g. `*` eaten)
 pass. Use `proptest` regression files and commit them.
@@ -581,6 +754,7 @@ two separate strong runs and does not qualify. Strong text containing code or li
 ### 7.6 Images (images.rs)
 
 **Hero pipeline:**
+
 1. Resolve path: next to the page first, then relative to the source folder.
 2. Read bytes; decode with `image::load_from_memory`. Cap decoded dimensions (e.g. 20 000 × 20 000)
    via `image::ImageReader` limits to prevent decompression bombs.
@@ -613,6 +787,7 @@ pub trait DiagramRenderer: Send + Sync {
 ```
 
 **Common post-conditions (enforced in `mod.rs`, for every backend):**
+
 1. Output starts with `<svg` (after optional XML prolog).
 2. Output must **not** contain `<foreignObject`. Typst warns that such SVGs render incorrectly (labels
    typically vanish). Treat as a render failure (E004) with the hint "set htmlLabels to false".
@@ -623,6 +798,7 @@ pub trait DiagramRenderer: Send + Sync {
    `<cache_dir>/diagrams/<hash>.svg`.
 
 **External backend:**
+
 - Spawn `command` with `args` placeholders substituted (`{input}` temp `.mmd`, `{output}` temp `.svg`,
   `{theme}` path to the written theme JSON). Pipe stdout and stderr, wait with `wait-timeout` for 30 s,
   kill on timeout, include the last 10 stderr lines in the error.
@@ -636,6 +812,7 @@ pub trait DiagramRenderer: Send + Sync {
   caching matters more than anything else: cold build is bounded by cache misses, warm build is free.
 
 **Native backend (feature `native-diagrams`):**
+
 - `mermaid-rs-renderer` 0.3.1 (`default-features = false`): `config::load_config(Some(theme_path))`
   returns `Config { theme, layout, render }`; then
   `mermaid_rs_renderer::render_with_options(src, RenderOptions { theme: cfg.theme, layout: cfg.layout })`
@@ -649,6 +826,7 @@ pub trait DiagramRenderer: Send + Sync {
   must show this, and the check must be done at the final PDF scale.
 
 **M7 Gate protocol (automated where possible):**
+
 1. Extract all Mermaid blocks from the target content (~120) into `m7/diagrams/NNN.mmd`.
 2. Render each with: external (mmdc), `mmdr`, `merman`.
 3. Machine checks per output: renders without error; no `<foreignObject`; all fonts embedded; width/height
@@ -717,6 +895,7 @@ impl World for HideoWorld {
 ```
 
 Notes:
+
 - `World: Send + Sync`; `FileStore` uses an internal mutex, so this is fine.
 - Create ids with
   `FileId::new(RootedPath::new(VirtualRoot::Project, VirtualPath::new("pages/001.typ")?))`.
@@ -760,9 +939,10 @@ write_atomically(&output_path, &bytes)?;
 ```
 
 **Diagnostic mapping (simplified by the per-page file layout):**
+
 - Each page is its own virtual file `pages/NNN.typ`, pulled in by `main.typ` with `#include`.
-- While emitting a page, `emit.rs` records a `LineMap: Vec<u32>` where entry *i* is the Markdown line that
-  produced generated-Typst line *i* (every `write!` of a block start pushes the current event's line).
+- While emitting a page, `emit.rs` records a `LineMap: Vec<u32>` where entry _i_ is the Markdown line that
+  produced generated-Typst line _i_ (every `write!` of a block start pushes the current event's line).
 - For each `SourceDiagnostic`: get the byte range with `typst::WorldExt::range(&world, diag.span)` and its
   file id from the span (`DiagSpan`; check the accessors in `typst_syntax::span`); look up
   `world.source(id)?.lines().byte_to_line(range.start)` (verified: `Lines::byte_to_line`) → generated line →
@@ -781,18 +961,18 @@ write_atomically(&output_path, &bytes)?;
 
 #### What Typst 0.15.1 does, verified in the sources
 
-| Topic | Behaviour (`typst-pdf` / `typst-library` 0.15.1) |
-|-------|---------------------------------------------------|
-| Tagging | `PdfOptions.tagged` defaults to `true`: a tagged PDF is written even without PDF/UA. |
-| Table headers | Cells in `table.header(...)` are written as `TH` with scope `Column`; rows of a table in which all rows are uniform are grouped into `THead`/`TBody`/`TFoot`. Cells outside `table.header` are `TD`. Header cells get `Headers` references so a screen reader can announce the column label for each data cell. |
-| Repeated headers | Repetitions of a header on later pages are artifacts, not content. |
-| Scope | Only column scope comes from `table.header`. Row headers need `pdf.header-cell` (not needed here, see F16). |
-| Table summary | `pdf.table-summary(summary: …)` exists but needs the `a11y-extras` feature flag and is "temporary API". Not used. A figure caption is the recommended way to summarize a table. |
-| PDF/UA-1 | `PdfStandards::new(&[PdfStandard::Ua_1])` turns on validation. Violations are **errors** (the PDF is not produced): missing document title, missing document language, missing alt text on images and equations, underline/overline/strike combined, headings without text, etc. |
-| Language | A document language is always written; without `set text(lang: …)` it defaults to English, which would be **wrong** for non-English books. hideo therefore requires `book.lang` (D11). |
-| Outline | Headings produce the PDF outline (bookmarks) automatically. |
-| Artifacts | Page header/footer, backgrounds, shapes and paths are artifacts automatically. Decorative content can be marked with `pdf.artifact(kind: …)`; once artifact, nothing inside can be un-hidden. |
-| Not guaranteed | PDF/UA-1 validation in Typst checks structure, not meaning: a header row styled bold but emitted as plain cells passes validation and is simply `TD`. Colour contrast, reading order sense and alt-text quality are **not** validated. |
+| Topic            | Behaviour (`typst-pdf` / `typst-library` 0.15.1)                                                                                                                                                                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tagging          | `PdfOptions.tagged` defaults to `true`: a tagged PDF is written even without PDF/UA.                                                                                                                                                                                                                            |
+| Table headers    | Cells in `table.header(...)` are written as `TH` with scope `Column`; rows of a table in which all rows are uniform are grouped into `THead`/`TBody`/`TFoot`. Cells outside `table.header` are `TD`. Header cells get `Headers` references so a screen reader can announce the column label for each data cell. |
+| Repeated headers | Repetitions of a header on later pages are artifacts, not content.                                                                                                                                                                                                                                              |
+| Scope            | Only column scope comes from `table.header`. Row headers need `pdf.header-cell` (not needed here, see F16).                                                                                                                                                                                                     |
+| Table summary    | `pdf.table-summary(summary: …)` exists but needs the `a11y-extras` feature flag and is "temporary API". Not used. A figure caption is the recommended way to summarize a table.                                                                                                                                 |
+| PDF/UA-1         | `PdfStandards::new(&[PdfStandard::Ua_1])` turns on validation. Violations are **errors** (the PDF is not produced): missing document title, missing document language, missing alt text on images and equations, underline/overline/strike combined, headings without text, etc.                                |
+| Language         | A document language is always written; without `set text(lang: …)` it defaults to English, which would be **wrong** for non-English books. hideo therefore requires `book.lang` (D11).                                                                                                                          |
+| Outline          | Headings produce the PDF outline (bookmarks) automatically.                                                                                                                                                                                                                                                     |
+| Artifacts        | Page header/footer, backgrounds, shapes and paths are artifacts automatically. Decorative content can be marked with `pdf.artifact(kind: …)`; once artifact, nothing inside can be un-hidden.                                                                                                                   |
+| Not guaranteed   | PDF/UA-1 validation in Typst checks structure, not meaning: a header row styled bold but emitted as plain cells passes validation and is simply `TD`. Colour contrast, reading order sense and alt-text quality are **not** validated.                                                                          |
 
 #### Requirements
 
@@ -806,7 +986,7 @@ write_atomically(&output_path, &bytes)?;
      artifact is a UA-1 error. An optional frontmatter key `hero_alt` turns a hero into real content with
      alt text (decision D9).
    - Markdown body images (D4): `![alt](path)`; non-empty `alt` → `image(…, alt: "…")`; empty alt → artifact.
-   - Diagrams: alt text from, in order, the fence info string (```` ```mermaid "Alt text here" ````), Mermaid's
+   - Diagrams: alt text from, in order, the fence info string (` ```mermaid "Alt text here" `), Mermaid's
      `accTitle`/`accDescr` lines, else the generated fallback `"Diagram"` plus warning W008. Never skip: UA-1
      would fail the build.
    - The external-link arrow icon: `image(…, alt: "external link")` (spoken after the link text).
@@ -860,17 +1040,17 @@ Use `lopdf` (0.47) to inspect the structure tree of the generated PDF; no extern
 
 ### 8.1 Test Levels
 
-| Level | What | Tool | Coverage Target |
-|-------|------|------|-----------------|
-| 1 | Unit tests per requirement | `cargo test` | 100 % of F1–F23 logic |
-| 2 | Emitter snapshots | `insta` | Every construct in section 5 |
-| 3 | Escaping property | `proptest` | 500 cases in CI, 10 000 nightly; text must survive, not just compile |
-| 4 | Table algorithm | Unit tests | Hand-computed expected widths |
-| 5 | End-to-end PDF inspection | `assert_cmd` + `lopdf` | Page count, link annotations, text extraction |
-| 6 | Reproducibility | Integration test | Byte-identical across processes and `--jobs` |
-| 7 | Visual review | `typst-render` PNGs + manual | 25-page sample vs. Appendix B |
-| 8 | Cross-tool validation | Script (optional) | Pandoc → Typst CLI comparison on the `full/` fixture |
-| 9 | Accessibility | `lopdf` struct-tree walk; veraPDF (`ua1`, nightly/manual); NVDA pass at M8 | Every table header is `TH`/column scope; PDF/UA-1 passes on `full/`; palette contrast ≥ 4.5 |
+| Level | What                       | Tool                                                                       | Coverage Target                                                                             |
+| ----- | -------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 1     | Unit tests per requirement | `cargo test`                                                               | 100 % of F1–F23 logic                                                                       |
+| 2     | Emitter snapshots          | `insta`                                                                    | Every construct in section 5                                                                |
+| 3     | Escaping property          | `proptest`                                                                 | 500 cases in CI, 10 000 nightly; text must survive, not just compile                        |
+| 4     | Table algorithm            | Unit tests                                                                 | Hand-computed expected widths                                                               |
+| 5     | End-to-end PDF inspection  | `assert_cmd` + `lopdf`                                                     | Page count, link annotations, text extraction                                               |
+| 6     | Reproducibility            | Integration test                                                           | Byte-identical across processes and `--jobs`                                                |
+| 7     | Visual review              | `typst-render` PNGs + manual                                               | 25-page sample vs. Appendix B                                                               |
+| 8     | Cross-tool validation      | Script (optional)                                                          | Pandoc → Typst CLI comparison on the `full/` fixture                                        |
+| 9     | Accessibility              | `lopdf` struct-tree walk; veraPDF (`ua1`, nightly/manual); NVDA pass at M8 | Every table header is `TH`/column scope; PDF/UA-1 passes on `full/`; palette contrast ≥ 4.5 |
 
 ### 8.2 Detailed Test Cases by Requirement
 
@@ -1004,13 +1184,13 @@ test_hero_without_alt_is_artifact
 
 ### 8.3 Property Tests
 
-| Property | Input | Assertion |
-|----------|-------|-----------|
-| Escaping | Random Unicode string | Typst compiles, no warnings, extracted text equals the input modulo shorthands |
-| Table widths | Random column counts (1–10), random text lengths | Fractions sum to 1.0, each ≥ 0 |
-| Slug uniqueness | Random heading lists | All IDs unique |
-| Link rewriting | Random path + anchor combinations | Output is unchanged or a valid Typst link (compiles) |
-| Line index | Random text with LF/CRLF-normalized endings | `byte → line` agrees with a naive counter |
+| Property        | Input                                            | Assertion                                                                      |
+| --------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Escaping        | Random Unicode string                            | Typst compiles, no warnings, extracted text equals the input modulo shorthands |
+| Table widths    | Random column counts (1–10), random text lengths | Fractions sum to 1.0, each ≥ 0                                                 |
+| Slug uniqueness | Random heading lists                             | All IDs unique                                                                 |
+| Link rewriting  | Random path + anchor combinations                | Output is unchanged or a valid Typst link (compiles)                           |
+| Line index      | Random text with LF/CRLF-normalized endings      | `byte → line` agrees with a naive counter                                      |
 
 ### 8.4 End-to-End Fixtures
 
@@ -1038,6 +1218,7 @@ manually or nightly, not on every push.
 ### 8.6 CI Pipeline (Semaphore)
 
 Semaphore facts used here (docs.semaphore.io, checked 2026-11-17):
+
 - The docs moved from `docs.semaphoreci.com` to **`docs.semaphore.io`**; update links in the README.
 - Linux x86_64: `f1-standard-2` (2 vCPU/8 GB) and `f1-standard-4` with `os_image: ubuntu2404`. The existing
   config uses `e1-standard-2` + `ubuntu2004`; E1/E2 are "legacy" and the 20.04 image is not in the current
@@ -1084,7 +1265,7 @@ global_job_config:
       - checkout
       - 'command -v rustup >/dev/null || curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'
       - export PATH="$HOME/.cargo/bin:$PATH"
-      - rustup show              # installs the toolchain from rust-toolchain.toml
+      - rustup show # installs the toolchain from rust-toolchain.toml
       - rustc -V && cargo -V
       - cache restore cargo-registry-$(checksum Cargo.lock),cargo-registry
       - cargo fetch --locked
@@ -1150,7 +1331,7 @@ blocks:
       agent:
         machine:
           type: a2-standard-4
-          os_image: macos-xcode26      # verify exact name in the workflow editor
+          os_image: macos-xcode26 # verify exact name in the workflow editor
       jobs:
         - name: cargo test
           commands:
@@ -1179,6 +1360,7 @@ promotions:
 ```
 
 Notes:
+
 - `[skip ci]` in a commit message is honoured by Semaphore natively; the `change_in(...)` guards give the
   same effect as the old AppVeyor `skip_commits` rule (docs-only commits touching `*.md`/`LICENSE*` do not
   start jobs). **(verify)** `change_in` accepts a list in this form in the workflow editor.
@@ -1282,6 +1464,7 @@ deploy:
 ```
 
 Notes:
+
 - `skip_branch_with_pr: true` and `branches: only: main` mean pull-request branches are built **once**, as PR
   builds, not twice. Keep both from the old file.
 - `build: off` keeps AppVeyor's MSBuild stage out of the way; everything is a script.
@@ -1327,26 +1510,27 @@ Notes:
 
 ## 9. Milestones
 
-| M | Milestone | Requirements | Done When | Days |
-|---|-----------|--------------|-----------|------|
-| 1 | Skeleton + Config | F1–F4, F21, F22 | Cargo project, **Semaphore and AppVeyor green on the skeleton**, CLI parses, config loads, discovery + frontmatter work, `list` and `check` on fixtures | 2 |
-| 2 | Link Model | F5–F8 | All link tests pass, report format correct | 2 |
-| 3 | Images | F10–F12 | Heroes scaled/cached/placeholdered, cover generated, resize benchmark recorded | 2 |
-| 4 | Emitter Core | F9, F17, F18 | Headings, paragraphs, emphasis, links, lists, quotes, code, rules, escaping; snapshot + property tests pass | 5 |
-| 5 | Tables | F16, F24 | Table fixtures pass, font reduction works, long words break, **header rows verified as `TH`/`THead` in the struct tree** | 4 |
-| 6 | Typst Integration | F10, F12–F14, F19, F20, F24 | `World` on `typst-kit`, template, cover, contents with page numbers, PDF export with PDF/UA-1 validation passing, reproducible, error mapping | 5 |
-| 7 | Diagrams | F15 | Trait, external backend, native evaluation, **M7 gate decision** | 4 |
-| 8 | Hardening | All | Full content builds, performance goal met, visual review pass, veraPDF baseline and one screen-reader pass (7.10) | 4 |
-| 9 | Packaging | F21, F23 | `--help` polish, README, release pipeline (8.7) | 2 |
-| | **Total** | | | **30** |
+| M   | Milestone         | Requirements                | Done When                                                                                                                                               | Days   |
+| --- | ----------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | Skeleton + Config | F1–F4, F21, F22             | Cargo project, **Semaphore and AppVeyor green on the skeleton**, CLI parses, config loads, discovery + frontmatter work, `list` and `check` on fixtures | 2      |
+| 2   | Link Model        | F5–F8                       | All link tests pass, report format correct                                                                                                              | 2      |
+| 3   | Images            | F10–F12                     | Heroes scaled/cached/placeholdered, cover generated, resize benchmark recorded                                                                          | 2      |
+| 4   | Emitter Core      | F9, F17, F18                | Headings, paragraphs, emphasis, links, lists, quotes, code, rules, escaping; snapshot + property tests pass                                             | 5      |
+| 5   | Tables            | F16, F24                    | Table fixtures pass, font reduction works, long words break, **header rows verified as `TH`/`THead` in the struct tree**                                | 4      |
+| 6   | Typst Integration | F10, F12–F14, F19, F20, F24 | `World` on `typst-kit`, template, cover, contents with page numbers, PDF export with PDF/UA-1 validation passing, reproducible, error mapping           | 5      |
+| 7   | Diagrams          | F15                         | Trait, external backend, native evaluation, **M7 gate decision**                                                                                        | 4      |
+| 8   | Hardening         | All                         | Full content builds, performance goal met, visual review pass, veraPDF baseline and one screen-reader pass (7.10)                                       | 4      |
+| 9   | Packaging         | F21, F23                    | `--help` polish, README, release pipeline (8.7)                                                                                                         | 2      |
+|     | **Total**         |                             |                                                                                                                                                         | **30** |
 
 **Order notes:**
+
 - M4 and M5 must complete before M6, so emitter bugs are caught before Typst compilation.
 - A **thin vertical slice of M6** (World + compile a hard-coded one-page document → PDF → lopdf reads it) is
   worth doing on day 1 of M1. It de-risks the reworked `typst-kit` API and the CI toolchain at the same time,
   and it is the single biggest uncertainty in the plan.
 - M7 can run in parallel with M5–M6 (diagrams are independent of table/image work).
-- M3's image logic can be written before M6; hero *placement* needs M6 to verify.
+- M3's image logic can be written before M6; hero _placement_ needs M6 to verify.
 - M6 is still the riskiest milestone but less so than before: the 0.15 `typst-kit` API has been read and the
   `World` skeleton in 7.8 is derived from the real sources. Remaining unknowns are template-level (pull hero
   into margins, non-breaking table rows, contents leaders).
@@ -1355,46 +1539,48 @@ Notes:
 
 ## 10. Risks
 
-| Risk | Likelihood | Effect | Mitigation |
-|------|------------|--------|------------|
-| Typst API changes | Medium | Rework in `world.rs`/`compile.rs` | Pin `=0.15.1`; confine Typst to those two files; group-bump in Renovate; upgrade deliberately |
-| Template relies on Typst behaviour that differs from expectation (hero bleed, non-splitting rows, contents leaders) | Medium | Visual regressions | Day-1 vertical slice; `typst-render` snapshots at M6 |
-| pulldown-cmark slow input or panic | Low–Medium | Hang or crash on a page | 0.13.6+, `catch_unwind` (do not set `panic = "abort"`), pathological fixture, no known control-character bug |
-| No native Mermaid renderer passes the gate | Medium | Not fully standalone | External backend stays; per-diagram-type fallback; document limitation |
-| Mermaid SVG uses `<foreignObject>` | **High** with `mmdc` defaults | Missing labels in PDF | `htmlLabels: false` in theme; hard post-condition check; warning from Typst is surfaced |
-| SVG fonts not embedded | Medium | Wrong face, clipped labels | `fontFamily` in theme; post-condition check; M7 contact sheet at final scale |
-| Hand-written emitter edge case | **High** | Broken pages | Fixtures, snapshots, property test that checks text survives, strict errors; escape-hatch design B |
-| Table widths wrong | Medium | Page breaks shift | Literal algorithm, hand-computed fixtures, visual review |
-| Font coverage (non-Latin characters) | Low–Medium | Missing-glyph boxes | Coverage warning in `check`; document supported scripts |
-| Windows path/CRLF issues | Medium | Failures on Windows | Lexical path normalization, `camino`, normalized CRLF, `windows-paths/` fixture; real Windows runner (AppVeyor) on every push |
-| Two CI systems (Semaphore + AppVeyor) drift apart | Medium | Different toolchain or flags per platform | Same commands in both files (fmt, clippy, test, release build, reproducibility check); `rust-toolchain.toml` is the single source of the Rust version; Renovate does not touch CI images |
-| AppVeyor image lacks or changes Rust/VS tooling | Low–Medium | Windows job red for non-code reasons | `install` step installs rustup when missing; first-run check (8.6) |
-| Header row emitted as plain cells instead of `table.header` | Medium (easy mistake in the emitter) | Table announced without column headers; PDF still "valid" | Emitter has one table function; struct-tree tests incl. negative control (7.10) |
-| PDF/UA-1 validation fails builds on content problems (missing alt, empty title) | Medium | Authors blocked | Errors name page and line (E006); `accessibility.pdf_ua = false` escape hatch; `check` warns first (W006–W008) |
-| Typst PDF/UA-1 support is structural only | Medium | False sense of compliance | Say so in README; veraPDF baseline; screen-reader pass at M8; contrast test |
-| Decorative images wrongly exposed or real images hidden | Low | Noise or lost information for screen-reader users | Rule "decorative = artifact"; optional `hero_alt`; tests in 8.2 |
-| Semaphore Rust toolchain availability unclear (docs conflict) | Medium | First CI runs fail | Prologue installs rustup; print `rustc -V` |
-| Large inputs memory/time | Low | Out-of-memory, slow builds | Image cache, decode limits, in-memory images, measure at M8 |
-| `FileId` table limit (65,535) | Very low | Panic on huge books | Intern each file once; assert in `check` |
-| Scope creep | Medium | Schedule slip | Unsupported-construct error keeps scope fixed |
+| Risk                                                                                                                | Likelihood                           | Effect                                                    | Mitigation                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Typst API changes                                                                                                   | Medium                               | Rework in `world.rs`/`compile.rs`                         | Pin `=0.15.1`; confine Typst to those two files; group-bump in Renovate; upgrade deliberately                                                                                            |
+| Template relies on Typst behaviour that differs from expectation (hero bleed, non-splitting rows, contents leaders) | Medium                               | Visual regressions                                        | Day-1 vertical slice; `typst-render` snapshots at M6                                                                                                                                     |
+| pulldown-cmark slow input or panic                                                                                  | Low–Medium                           | Hang or crash on a page                                   | 0.13.6+, `catch_unwind` (do not set `panic = "abort"`), pathological fixture, no known control-character bug                                                                             |
+| No native Mermaid renderer passes the gate                                                                          | Medium                               | Not fully standalone                                      | External backend stays; per-diagram-type fallback; document limitation                                                                                                                   |
+| Mermaid SVG uses `<foreignObject>`                                                                                  | **High** with `mmdc` defaults        | Missing labels in PDF                                     | `htmlLabels: false` in theme; hard post-condition check; warning from Typst is surfaced                                                                                                  |
+| SVG fonts not embedded                                                                                              | Medium                               | Wrong face, clipped labels                                | `fontFamily` in theme; post-condition check; M7 contact sheet at final scale                                                                                                             |
+| Hand-written emitter edge case                                                                                      | **High**                             | Broken pages                                              | Fixtures, snapshots, property test that checks text survives, strict errors; escape-hatch design B                                                                                       |
+| Table widths wrong                                                                                                  | Medium                               | Page breaks shift                                         | Literal algorithm, hand-computed fixtures, visual review                                                                                                                                 |
+| Font coverage (non-Latin characters)                                                                                | Low–Medium                           | Missing-glyph boxes                                       | Coverage warning in `check`; document supported scripts                                                                                                                                  |
+| Windows path/CRLF issues                                                                                            | Medium                               | Failures on Windows                                       | Lexical path normalization, `camino`, normalized CRLF, `windows-paths/` fixture; real Windows runner (AppVeyor) on every push                                                            |
+| Two CI systems (Semaphore + AppVeyor) drift apart                                                                   | Medium                               | Different toolchain or flags per platform                 | Same commands in both files (fmt, clippy, test, release build, reproducibility check); `rust-toolchain.toml` is the single source of the Rust version; Renovate does not touch CI images |
+| AppVeyor image lacks or changes Rust/VS tooling                                                                     | Low–Medium                           | Windows job red for non-code reasons                      | `install` step installs rustup when missing; first-run check (8.6)                                                                                                                       |
+| Header row emitted as plain cells instead of `table.header`                                                         | Medium (easy mistake in the emitter) | Table announced without column headers; PDF still "valid" | Emitter has one table function; struct-tree tests incl. negative control (7.10)                                                                                                          |
+| PDF/UA-1 validation fails builds on content problems (missing alt, empty title)                                     | Medium                               | Authors blocked                                           | Errors name page and line (E006); `accessibility.pdf_ua = false` escape hatch; `check` warns first (W006–W008)                                                                           |
+| Typst PDF/UA-1 support is structural only                                                                           | Medium                               | False sense of compliance                                 | Say so in README; veraPDF baseline; screen-reader pass at M8; contrast test                                                                                                              |
+| Decorative images wrongly exposed or real images hidden                                                             | Low                                  | Noise or lost information for screen-reader users         | Rule "decorative = artifact"; optional `hero_alt`; tests in 8.2                                                                                                                          |
+| Semaphore Rust toolchain availability unclear (docs conflict)                                                       | Medium                               | First CI runs fail                                        | Prologue installs rustup; print `rustc -V`                                                                                                                                               |
+| Large inputs memory/time                                                                                            | Low                                  | Out-of-memory, slow builds                                | Image cache, decode limits, in-memory images, measure at M8                                                                                                                              |
+| `FileId` table limit (65,535)                                                                                       | Very low                             | Panic on huge books                                       | Intern each file once; assert in `check`                                                                                                                                                 |
+| Scope creep                                                                                                         | Medium                               | Schedule slip                                             | Unsupported-construct error keeps scope fixed                                                                                                                                            |
 
 ---
 
 ## 11. Decisions Needed Before Starting
 
-| ID | Decision | Recommendation |
-|----|----------|----------------|
-| D1 | ~~Windows CI~~ **Decided: AppVeyor** (8.6). | done |
-| D9 | ~~Hero image alt text~~ **Decided:** heroes are decorative (artifacts) by default; an optional `hero_alt` frontmatter key makes a hero real content with alt text. | done |
-| D10 | ~~PDF/UA-1 validation default~~ **Decided:** on by default (builds fail on violations); `accessibility.pdf_ua = false` is the escape hatch and prints a warning on every build. | done |
-| D11 | ~~Book language~~ **Decided:** `book.lang` is required in the config, no default, so the document language is never silently wrong. | done |
-| D2 | **Diagrams.** Accept "standalone except diagrams" (or per-type fallback) if no native renderer passes the gate, or hold the release? | Accept per-type fallback; do not hold the release |
-| D3 | **Visual tolerance.** Is following Appendix B plus the level-5 checks enough, or must pages match reference PDFs line by line? | Appendix B + committed PNG snapshots with ≤ 0.1 % tolerance |
-| D4 | **Body images.** Markdown `![alt](path)` inside pages: supported (same pipeline, width 100 %), or error? | Support, scaled to text width, same cache |
-| D5 | **Links that leave the tier** (to a page in another tier): plain text + report, or cross-PDF link? | Plain text + report |
-| D6 | **Page numbering.** Does the contents page count as page 1, or does the cover? | Cover is page 1 (unnumbered), contents page shows 2 |
-| D7 | **Cover text.** Title, author and the line template are configuration (Appendix A); confirm the wording. | n/a (content decision) |
-| D8 | **Release targets.** Which OS/arch binaries are published? | linux x86_64 + aarch64, macOS aarch64 (+x86_64), Windows x86_64 |
+| ID  | Decision                                                                                                                                                                                                | Recommendation                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| D1  | ~~Windows CI~~ **Decided: AppVeyor** (8.6).                                                                                                                                                             | done                                                            |
+| D9  | ~~Hero image alt text~~ **Decided:** heroes are decorative (artifacts) by default; an optional `hero_alt` frontmatter key makes a hero real content with alt text.                                      | done                                                            |
+| D10 | ~~PDF/UA-1 validation default~~ **Decided:** on by default (builds fail on violations); `accessibility.pdf_ua = false` is the escape hatch and prints a warning on every build.                         | done                                                            |
+| D11 | ~~Book language~~ **Decided:** `book.lang` is required in the config, no default, so the document language is never silently wrong.                                                                     | done                                                            |
+| D2  | **Diagrams.** Accept "standalone except diagrams" (or per-type fallback) if no native renderer passes the gate, or hold the release?                                                                    | Accept per-type fallback; do not hold the release               |
+| D3  | **Visual tolerance.** Is following Appendix B plus the level-5 checks enough, or must pages match reference PDFs line by line?                                                                          | Appendix B + committed PNG snapshots with ≤ 0.1 % tolerance     |
+| D4  | ~~Body images~~ **Implemented as recommended:** supported, scaled to the text width and shrunk to at most 85 % of the text height, same cache. Empty alt text makes the image decorative (an artifact). | done                                                            |
+| D5  | ~~Links that leave the tier~~ **Implemented as recommended:** plain text, reported as _outside this PDF_ (W001).                                                                                        | done                                                            |
+| D6  | ~~Page numbering~~ **Implemented as recommended:** the cover is page 1 (no number), the contents page shows 2.                                                                                          | done                                                            |
+| D7  | **Cover text.** Title, author and the line template are configuration (Appendix A); confirm the wording.                                                                                                | n/a (content decision)                                          |
+| D12 | ~~Pages without a heading~~ **Decided during implementation:** the frontmatter `title` becomes an H1 when the body has no heading, so every page has a heading and a contents entry.                    | done                                                            |
+| D13 | ~~Diagram and image size~~ **Decided during implementation:** images fit the text width, diagrams are never scaled above their natural size, both at most 85 % of the text height (note N4).            | done                                                            |
+| D8  | **Release targets.** Which OS/arch binaries are published?                                                                                                                                              | linux x86_64 + aarch64, macOS aarch64 (+x86_64), Windows x86_64 |
 
 (The previous revision numbered these 2, 3, 5; items 1 and 4 were missing from the text and have been
 dropped or re-added as D4/D5. Reinstate them if they were meaningful.)
@@ -1405,20 +1591,20 @@ dropped or re-added as D4/D5. Reinstate them if they were meaningful.)
 
 ```toml
 # hideo.toml
-tiers = ["required", "additional", "bonus"]   # folder names; also the PDF names
+tiers = ["required", "additional", "bonus"] # folder names; also the PDF names
 ignore_prefixes = ["_", "."]
 
 [page]
 width_mm = 210
 margin_x_mm = 20
 margin_y_mm = 18
-hero_height_mm = 118.125        # placeholder height, 16:9
+hero_height_mm = 118.125 # placeholder height, 16:9
 
 [images]
-dpi = 200                       # heroes are scaled to the page width at this resolution
+dpi = 200 # heroes are scaled to the page width at this resolution
 jpeg_quality = 70
 contents_hero = "images/contents.png"
-cover_pattern = "images/cover_front_{tier}.png"   # grey-violet placeholder when missing
+cover_pattern = "images/cover_front_{tier}.png" # grey-violet placeholder when missing
 
 [cover]
 title = "Book title"
@@ -1431,24 +1617,24 @@ panel_offset_mm = 20
 columns = 2
 
 [diagrams]
-backend = "external"            # "native", "external" or "off"
-command = "mmdc"                # or "mmdr"; used by the external backend
+backend = "external" # "native", "external" or "off"
+command = "mmdc" # or "mmdr"; used by the external backend
 args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
 timeout_s = 30
 theme = "assets/mermaid-theme.json"
 
 [build]
-cache_dir = ".hideo-cache"      # relative to the output folder
+cache_dir = ".hideo-cache" # relative to the output folder
 
 [diagnostics]
 warnings_as_errors = false
 
 [book]
-lang = "fi"                     # REQUIRED document language (BCP 47); see 7.10 and D11
+lang = "fi" # REQUIRED document language (BCP 47); see 7.10 and D11
 
 [accessibility]
-tagged = true                   # write a tagged PDF
-pdf_ua = true                   # enforce PDF/UA-1 validation
+tagged = true # write a tagged PDF
+pdf_ua = true # enforce PDF/UA-1 validation
 ```
 
 ---
@@ -1458,24 +1644,24 @@ pdf_ua = true                   # enforce PDF/UA-1 validation
 All sizes and colours below are requirements and live in the template (`assets/template.typ`), with the
 page geometry filled in from the configuration.
 
-| Element | Specification |
-|---------|---------------|
-| Page | A4 portrait, margins from the configuration; footer: page number centred, 8 pt, `#6E6682` |
-| Body text | Libertinus Serif 10.5 pt, `#2A2438`, not justified, leading 0.75 em, paragraph spacing 0.65 em, language from frontmatter |
-| Heading 1 | 19 pt bold, `#24134D`, 1.6 em above and 1.5 em below, kept with the next block |
-| Heading 2 | 15 pt bold, `#3D2A7A`, 2.4 em above and 1.4 em below, kept with the next block |
-| Heading 3 | 12 pt bold, `#52389A`, 1.8 em above and 1.1 em below, kept with the next block |
-| Headings | not numbered |
-| Lists | 1.3 em of space after a list |
-| Code block | full width, fill `#F3F0F8`, 9 pt inset, 4 pt radius, DejaVu Sans Mono 8 pt |
-| Links | `#4A2F8F`; links that leave the PDF are followed by a small arrow icon (an inline SVG, 0.6 em high, stroke `#4A2F8F`) |
-| Block quote | full width, fill `#F0EBF8`, inset 8 pt vertical and 10 pt horizontal, a 2.5 pt left bar `#5B3FA0`, 3 pt radius on the right, 1 em above and below, text 10 pt, paragraph spacing 0.6 em |
-| Lead-in label | bold, `#5B3FA0` |
-| Thematic break | centred line, 30 % of the width, 0.6 pt, `#D3CCE4`, 1.4 em above and below |
-| Tables | cell inset 4 pt by 4 pt; only horizontal lines, 0.4 pt `#D3CCE4`; header row fill `#E9E3F6` and bold; every second body row fill `#F5F3F9`; may break across pages; rows are not split when they fit; hyphenation on; 1.8 em above and below; header repeats on each page |
-| Page head | hero full width pulled into the margins, 5 mm space; subtitle 12 pt `#6E6682` with 8 pt below; author line 9 pt `#6E6682` followed by 5 mm; placeholder fill `#E7E3EF` |
-| Contents | title "Contents" 19 pt bold `#24134D`; two columns with 6 mm gutter; text 7.5 pt, leading 0.4 em; group label 8.5 pt bold `#3D2A7A`; entry: title, dotted leader, page number, text `#2A2438`, 0.55 em above |
-| Cover | full-bleed, panel `#2E1A5C`, white text; title 24 pt bold, tier line 16 pt, author 12 pt; panel inset 16 pt, radius 4 pt; placeholder `rgb(231, 227, 239)` |
+| Element        | Specification                                                                                                                                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page           | A4 portrait, margins from the configuration; footer: page number centred, 8 pt, `#6E6682`                                                                                                                                                                                 |
+| Body text      | Libertinus Serif 10.5 pt, `#2A2438`, not justified, leading 0.75 em, paragraph spacing 0.65 em, language from frontmatter                                                                                                                                                 |
+| Heading 1      | 19 pt bold, `#24134D`, 1.6 em above and 1.5 em below, kept with the next block                                                                                                                                                                                            |
+| Heading 2      | 15 pt bold, `#3D2A7A`, 2.4 em above and 1.4 em below, kept with the next block                                                                                                                                                                                            |
+| Heading 3      | 12 pt bold, `#52389A`, 1.8 em above and 1.1 em below, kept with the next block                                                                                                                                                                                            |
+| Headings       | not numbered                                                                                                                                                                                                                                                              |
+| Lists          | 1.3 em of space after a list                                                                                                                                                                                                                                              |
+| Code block     | full width, fill `#F3F0F8`, 9 pt inset, 4 pt radius, DejaVu Sans Mono 8 pt                                                                                                                                                                                                |
+| Links          | `#4A2F8F`; links that leave the PDF are followed by a small arrow icon (an inline SVG, 0.6 em high, stroke `#4A2F8F`)                                                                                                                                                     |
+| Block quote    | full width, fill `#F0EBF8`, inset 8 pt vertical and 10 pt horizontal, a 2.5 pt left bar `#5B3FA0`, 3 pt radius on the right, 1 em above and below, text 10 pt, paragraph spacing 0.6 em                                                                                   |
+| Lead-in label  | bold, `#5B3FA0`                                                                                                                                                                                                                                                           |
+| Thematic break | centred line, 30 % of the width, 0.6 pt, `#D3CCE4`, 1.4 em above and below                                                                                                                                                                                                |
+| Tables         | cell inset 4 pt by 4 pt; only horizontal lines, 0.4 pt `#D3CCE4`; header row fill `#E9E3F6` and bold; every second body row fill `#F5F3F9`; may break across pages; rows are not split when they fit; hyphenation on; 1.8 em above and below; header repeats on each page |
+| Page head      | hero full width pulled into the margins, 5 mm space; subtitle 12 pt `#6E6682` with 8 pt below; author line 9 pt `#6E6682` followed by 5 mm; placeholder fill `#E7E3EF`                                                                                                    |
+| Contents       | title "Contents" 19 pt bold `#24134D`; two columns with 6 mm gutter; text 7.5 pt, leading 0.4 em; group label 8.5 pt bold `#3D2A7A`; entry: title, dotted leader, page number, text `#2A2438`, 0.55 em above                                                              |
+| Cover          | full-bleed, panel `#2E1A5C`, white text; title 24 pt bold, tier line 16 pt, author 12 pt; panel inset 16 pt, radius 4 pt; placeholder `rgb(231, 227, 239)`                                                                                                                |
 
 Accessibility notes for the table above (F24, 7.10): the table header row is `table.header(...)`, not a styled
 first row; the contents leader and the hero/cover images are artifacts; the external-link arrow has alt text
@@ -1483,17 +1669,17 @@ first row; the contents leader and the hero/cover images are artifacts; the exte
 
 **Contrast check** (WCAG 2.x relative luminance, computed 2026-11-17; AA needs ≥ 4.5:1 for normal text):
 
-| Text on background | Ratio |
-|--------------------|-------|
-| Body `#2A2438` on white | 14.92 |
-| H1 `#24134D` / H2 `#3D2A7A` / H3 `#52389A` on white | 16.47 / 11.60 / 8.78 |
-| Footer and subtitle `#6E6682` on white | **5.40** (the lowest text pair in the spec; 8 pt footer still passes) |
-| Links `#4A2F8F` on white / on quote fill `#F0EBF8` | 10.03 / 8.57 |
-| Lead-in `#5B3FA0` on white / on quote fill | 7.88 / 6.74 |
-| Quote text `#2A2438` on `#F0EBF8` | 12.75 |
-| Code text `#2A2438` on `#F3F0F8` | 13.23 |
-| Table text `#2A2438` on header fill `#E9E3F6` / zebra `#F5F3F9` | 11.92 / 13.55 |
-| Cover white on `#2E1A5C` | 14.80 |
+| Text on background                                              | Ratio                                                                 |
+| --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Body `#2A2438` on white                                         | 14.92                                                                 |
+| H1 `#24134D` / H2 `#3D2A7A` / H3 `#52389A` on white             | 16.47 / 11.60 / 8.78                                                  |
+| Footer and subtitle `#6E6682` on white                          | **5.40** (the lowest text pair in the spec; 8 pt footer still passes) |
+| Links `#4A2F8F` on white / on quote fill `#F0EBF8`              | 10.03 / 8.57                                                          |
+| Lead-in `#5B3FA0` on white / on quote fill                      | 7.88 / 6.74                                                           |
+| Quote text `#2A2438` on `#F0EBF8`                               | 12.75                                                                 |
+| Code text `#2A2438` on `#F3F0F8`                                | 13.23                                                                 |
+| Table text `#2A2438` on header fill `#E9E3F6` / zebra `#F5F3F9` | 11.92 / 13.55                                                         |
+| Cover white on `#2E1A5C`                                        | 14.80                                                                 |
 
 Caveat: `#6E6682` on the placeholder fill `#E7E3EF` is only 4.28:1. The spec has no text on the placeholder; if
 one is ever added, use `#2A2438`. The table-rule colour `#D3CCE4` is decorative (not text) and exempt.
@@ -1559,31 +1745,31 @@ honoured by the chosen renderer, since `mmdr`'s config loader only reads the key
 
 ## Appendix D: Corrections to the Previous Revision
 
-| Previous claim | Finding |
-|----------------|---------|
-| `typst_pdf::pdf(&doc, &options)` returns the bytes | Returns `SourceResult<Vec<u8>>`. |
-| `PdfOptions.timestamp` takes a `chrono` value | It is `Option<typst_pdf::Timestamp>`; build it with `Timestamp::new_utc(Datetime)`. |
-| `typst::compile(&world)` and `result.is_ok()` in the proptest | It is `compile::<PagedDocument>(&world)` returning `Warned<SourceResult<_>>`; `PagedDocument` is in `typst_layout`. |
-| `World::today(&self, offset: Option<i64>)` | Takes `Option<typst::foundations::Duration>`. |
-| `FileId::new(None, VirtualPath::new(...))` | Now `FileId::new(RootedPath::new(VirtualRoot::Project, VirtualPath::new(..)?))`. |
-| `typst_kit::fonts::FontSearcher` with `include_system_fonts(false)` / `include_embedded_fonts(true)` | Does not exist in 0.15; use `FontStore` + `fonts::embedded()`. |
-| Depend on `typst-assets` directly | Pulled in transitively by `typst-kit/embedded-fonts`. |
-| pulldown-cmark 0.13.4 panics in `OffsetIter` on NUL/VT/FF in link reference definitions | No source found. Release notes: 0.13.4 fixed a `TightParagraph` panic; 0.13.5 fixed quadratic-time parsing and a definition-list offset panic; 0.13.6 fixed a wikilink DoS. Use 0.13.6. |
-| pulldown-cmark "will parse some [footnotes etc.] by default" | Extensions are opt-in. They must be enabled to be detected. Also `ENABLE_HEADING_ATTRIBUTES` is required for the `{#id}` syntax and the previous option list omitted it. |
-| Manually replace `...` with `…` while letting Typst handle punctuation | Typst already converts `...`; the replacement is redundant. |
-| `toml = "0.8"` | Current is 1.2. |
-| `lopdf = "0.44"` | Current is 0.47; `get_page_annotations` exists. |
-| `cargo-dist` 0.30.x for releases | Current is 0.34 (binary `dist`), but its only CI backend is GitHub; unsuitable with Semaphore. |
-| "Use Semaphore CI" with a GitHub Actions YAML and a macOS matrix | Replaced by a Semaphore pipeline. Semaphore Cloud has no Windows, so Windows runs on AppVeyor (decided in revision 3, 8.6). |
-| No accessibility requirements (revision 2) | Added F24 and 7.10. The only table-header rule was "header repeats on each page", which is a layout property; it says nothing about tagging. Header rows must be `table.header(...)` to be `TH`. |
-| `command = "mermaid-renderer"` | Not a real binary. The mermaid-cli binary is `mmdc`; `mmdr` is the native CLI. Both accept `-i -o -c -e`. |
-| Appendix C theme has no font and default HTML labels | Typst resolves SVG text through its font book and warns on `<foreignObject>`; fixed in the theme. |
-| Typst 0.15.1 changelog details (math alignment, `op` misalignment, SVG pretty printing); "`box`/`block` purpose aligned with paged export"; "the typst-py release added a reproducible timestamp option" | Not verifiable from the sources; removed as justification. |
-| Contents/footers have no description of how page numbers are obtained | Added (F13, `context` + `locate`). |
-| One concatenated `main.typ` with a hand-built source map | Replaced by per-page virtual files + a per-page line map (7.9). |
-| Cache dir relative to the CWD (7.4) but "in the output folder" (7.6) | Output folder. |
-| Decision list numbered 2, 3, 5 | Renumbered D1–D8. |
-| Requirements F1–F23 "as in the original plan" | The list is absent from this file; reconstructed in 4.0. Confirm. |
+| Previous claim                                                                                                                                                                                           | Finding                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `typst_pdf::pdf(&doc, &options)` returns the bytes                                                                                                                                                       | Returns `SourceResult<Vec<u8>>`.                                                                                                                                                                 |
+| `PdfOptions.timestamp` takes a `chrono` value                                                                                                                                                            | It is `Option<typst_pdf::Timestamp>`; build it with `Timestamp::new_utc(Datetime)`.                                                                                                              |
+| `typst::compile(&world)` and `result.is_ok()` in the proptest                                                                                                                                            | It is `compile::<PagedDocument>(&world)` returning `Warned<SourceResult<_>>`; `PagedDocument` is in `typst_layout`.                                                                              |
+| `World::today(&self, offset: Option<i64>)`                                                                                                                                                               | Takes `Option<typst::foundations::Duration>`.                                                                                                                                                    |
+| `FileId::new(None, VirtualPath::new(...))`                                                                                                                                                               | Now `FileId::new(RootedPath::new(VirtualRoot::Project, VirtualPath::new(..)?))`.                                                                                                                 |
+| `typst_kit::fonts::FontSearcher` with `include_system_fonts(false)` / `include_embedded_fonts(true)`                                                                                                     | Does not exist in 0.15; use `FontStore` + `fonts::embedded()`.                                                                                                                                   |
+| Depend on `typst-assets` directly                                                                                                                                                                        | Pulled in transitively by `typst-kit/embedded-fonts`.                                                                                                                                            |
+| pulldown-cmark 0.13.4 panics in `OffsetIter` on NUL/VT/FF in link reference definitions                                                                                                                  | No source found. Release notes: 0.13.4 fixed a `TightParagraph` panic; 0.13.5 fixed quadratic-time parsing and a definition-list offset panic; 0.13.6 fixed a wikilink DoS. Use 0.13.6.          |
+| pulldown-cmark "will parse some [footnotes etc.] by default"                                                                                                                                             | Extensions are opt-in. They must be enabled to be detected. Also `ENABLE_HEADING_ATTRIBUTES` is required for the `{#id}` syntax and the previous option list omitted it.                         |
+| Manually replace `...` with `…` while letting Typst handle punctuation                                                                                                                                   | Typst already converts `...`; the replacement is redundant.                                                                                                                                      |
+| `toml = "0.8"`                                                                                                                                                                                           | Current is 1.2.                                                                                                                                                                                  |
+| `lopdf = "0.44"`                                                                                                                                                                                         | Current is 0.47; `get_page_annotations` exists.                                                                                                                                                  |
+| `cargo-dist` 0.30.x for releases                                                                                                                                                                         | Current is 0.34 (binary `dist`), but its only CI backend is GitHub; unsuitable with Semaphore.                                                                                                   |
+| "Use Semaphore CI" with a GitHub Actions YAML and a macOS matrix                                                                                                                                         | Replaced by a Semaphore pipeline. Semaphore Cloud has no Windows, so Windows runs on AppVeyor (decided in revision 3, 8.6).                                                                      |
+| No accessibility requirements (revision 2)                                                                                                                                                               | Added F24 and 7.10. The only table-header rule was "header repeats on each page", which is a layout property; it says nothing about tagging. Header rows must be `table.header(...)` to be `TH`. |
+| `command = "mermaid-renderer"`                                                                                                                                                                           | Not a real binary. The mermaid-cli binary is `mmdc`; `mmdr` is the native CLI. Both accept `-i -o -c -e`.                                                                                        |
+| Appendix C theme has no font and default HTML labels                                                                                                                                                     | Typst resolves SVG text through its font book and warns on `<foreignObject>`; fixed in the theme.                                                                                                |
+| Typst 0.15.1 changelog details (math alignment, `op` misalignment, SVG pretty printing); "`box`/`block` purpose aligned with paged export"; "the typst-py release added a reproducible timestamp option" | Not verifiable from the sources; removed as justification.                                                                                                                                       |
+| Contents/footers have no description of how page numbers are obtained                                                                                                                                    | Added (F13, `context` + `locate`).                                                                                                                                                               |
+| One concatenated `main.typ` with a hand-built source map                                                                                                                                                 | Replaced by per-page virtual files + a per-page line map (7.9).                                                                                                                                  |
+| Cache dir relative to the CWD (7.4) but "in the output folder" (7.6)                                                                                                                                     | Output folder.                                                                                                                                                                                   |
+| Decision list numbered 2, 3, 5                                                                                                                                                                           | Renumbered D1–D8.                                                                                                                                                                                |
+| Requirements F1–F23 "as in the original plan"                                                                                                                                                            | The list is absent from this file; reconstructed in 4.0. Confirm.                                                                                                                                |
 
 ---
 
@@ -1591,25 +1777,25 @@ honoured by the chosen renderer, since `mmdr`'s config loader only reads the key
 
 The working tree is what is left after the Node.js tool was removed (`a4405d4`).
 
-- [ ] `cargo init --name hideo` (binary crate); add the `Cargo.toml` pieces from 3.4, 6 and 7.1; commit `Cargo.lock`.
-- [ ] `rust-toolchain.toml`:
+- [x] `cargo init --name hideo` (binary crate); add the `Cargo.toml` pieces from 3.4, 6 and 7.1; commit `Cargo.lock`.
+- [x] `rust-toolchain.toml`:
   ```toml
   [toolchain]
   channel = "stable"
   components = ["rustfmt", "clippy"]
   ```
-- [ ] Replace `.gitignore` (it is a Node template) with `/target`, `/pdf-output`, `/.hideo-cache`, `*.pdf` (except
-  `!tests/**/*.pdf` if any are checked in), `.DS_Store`.
-- [ ] Delete `oxlint.json` (JavaScript linter config, no longer applicable).
-- [ ] README: `logo.png` is referenced but not tracked; add it or remove the line. Update the Semaphore badge
-  and docs links to `semaphore.io` **(verify)**. Add install/usage sections (M9).
-- [ ] `CHANGELOG.md`: start a new section for the Rust rewrite.
-- [ ] Replace `.semaphore/semaphore.yml` with the pipeline in 8.6 **after** `Cargo.toml` exists.
-- [ ] Re-add `appveyor.yml` (the Node.js one was deleted in `a4405d4`) with the Rust version from 8.6; enable the
-  repository in AppVeyor, encrypt the GitHub token (Account → Encrypt YAML) and paste it into `deploy`.
-  Keep the Windows `RUSTFLAGS`/toolchain in sync with Semaphore via `rust-toolchain.toml`.
-- [ ] `renovate.json` currently has `automerge: true` for minor updates and `config:recommended`, which is
-  wrong for exact-pinned Typst. Add:
+- [x] Replace `.gitignore` (it is a Node template) with `/target`, `/pdf-output`, `/.hideo-cache`, `*.pdf` (except
+      `!tests/**/*.pdf` if any are checked in), `.DS_Store`.
+- [x] Delete `oxlint.json` (JavaScript linter config, no longer applicable).
+- [x] README: `logo.png` is referenced but not tracked; add it or remove the line. Update the Semaphore badge
+      and docs links to `semaphore.io` **(verify)**. Add install/usage sections (M9).
+- [x] `CHANGELOG.md`: start a new section for the Rust rewrite.
+- [x] Replace `.semaphore/semaphore.yml` with the pipeline in 8.6 **after** `Cargo.toml` exists.
+- [x] Re-add `appveyor.yml` (the Node.js one was deleted in `a4405d4`) with the Rust version from 8.6; enable the (file is in; enabling the repository and the encrypted token are manual)
+      repository in AppVeyor, encrypt the GitHub token (Account → Encrypt YAML) and paste it into `deploy`.
+      Keep the Windows `RUSTFLAGS`/toolchain in sync with Semaphore via `rust-toolchain.toml`.
+- [x] `renovate.json` currently has `automerge: true` for minor updates and `config:recommended`, which is
+      wrong for exact-pinned Typst. Add:
   ```json
   "packageRules": [
     {
@@ -1625,9 +1811,9 @@ The working tree is what is left after the Node.js tool was removed (`a4405d4`).
   ]
   ```
   (`minimumReleaseAge` stays.) The existing `commitBody` Signed-off-by line is kept.
-- [ ] Add `tests/fixtures/` skeletons (8.4) and the day-1 vertical-slice test: compile a hard-coded Typst string
-  through `HideoWorld`, export with `typst_pdf::pdf`, load with `lopdf::Document::load_mem`, assert one page.
-- [ ] `hideo.toml` example from Appendix A at the repo root.
+- [x] Add `tests/fixtures/` skeletons (8.4) and the day-1 vertical-slice test: compile a hard-coded Typst string
+      through `HideoWorld`, export with `typst_pdf::pdf`, load with `lopdf::Document::load_mem`, assert one page.
+- [x] `hideo.toml` example from Appendix A at the repo root.
 - [ ] `LICENSE` is MIT. All direct dependencies listed are MIT, Apache-2.0 or dual MIT/Apache-2.0 (`typst*`
-  Apache-2.0, `pulldown-cmark` MIT, `mermaid-rs-renderer` MIT, `merman` MIT OR Apache-2.0), so this is
-  compatible. Add `cargo-deny` **(optional)** with an allow-list to keep it that way, as a Semaphore job.
+      Apache-2.0, `pulldown-cmark` MIT, `mermaid-rs-renderer` MIT, `merman` MIT OR Apache-2.0), so this is
+      compatible. Add `cargo-deny` **(optional)** with an allow-list to keep it that way, as a Semaphore job.

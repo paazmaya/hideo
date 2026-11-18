@@ -1,130 +1,207 @@
-// hideo template for Typst
-// This file is embedded in the binary and used as the base template
+// hideo template. Embedded in the binary; the double-brace tokens below are filled from the configuration.
+// Imported by the generated main.typ and by every generated page as `/template.typ`.
+// Visual specification: PLAN.md Appendix B. Accessibility notes: PLAN.md 7.10.
 
-#set page(width: {{PAGE_WIDTH_MM}}mm, height: 297mm, margin: (x: {{MARGIN_X_MM}}mm, y: {{MARGIN_Y_MM}}mm))
+#let margin-x = {{MARGIN_X_MM}}mm
+#let margin-y = {{MARGIN_Y_MM}}mm
+#let page-width = {{PAGE_WIDTH_MM}}mm
 
-#set text(font: "Libertinus Serif", size: 10.5pt, fill: rgb("#2A2438"), lang: "{{BOOK_LANG}}")
-#set par(leading: 0.75em, spacing: 0.65em, justify: false)
+#let ink = rgb("#2A2438")
+#let muted = rgb("#6E6682")
+#let accent = rgb("#5B3FA0")
+#let link-color = rgb("#4A2F8F")
+#let rule-color = rgb("#D3CCE4")
+#let h1-color = rgb("#24134D")
+#let h2-color = rgb("#3D2A7A")
+#let h3-color = rgb("#52389A")
+#let panel-color = rgb("#2E1A5C")
 
-#set heading(numbering: none)
-#set heading(1, size: 19pt, weight: 700, fill: rgb("#24134D"), above: 1.6em, below: 1.5em)
-#set heading(2, size: 15pt, weight: 700, fill: rgb("#3D2A7A"), above: 2.4em, below: 1.4em)
-#set heading(3, size: 12pt, weight: 700, fill: rgb("#52389A"), above: 1.8em, below: 1.1em)
+// The whole book: document metadata, language, page geometry and styles.
+#let book(lang: "en", title: "", author: "", body) = {
+  set document(title: title, author: if author == "" { () } else { author })
+  set text(lang: lang, font: "Libertinus Serif", size: 10.5pt, fill: ink)
+  set page(
+    width: page-width,
+    height: 297mm,
+    margin: (x: margin-x, y: margin-y),
+    // Footer page number: centred, 8 pt. Typst marks footers as artifacts. The cover
+    // (page 1) overrides the footer with `none`.
+    footer: context {
+      set text(size: 8pt, fill: muted)
+      align(center, counter(page).display())
+    },
+  )
+  set par(leading: 0.75em, spacing: 0.65em, justify: false)
 
-#set list(spacing: 1.3em)
+  set heading(numbering: none)
+  show heading.where(level: 1): set text(size: 19pt, weight: "bold", fill: h1-color)
+  show heading.where(level: 1): set block(above: 1.6em, below: 1.5em)
+  show heading.where(level: 2): set text(size: 15pt, weight: "bold", fill: h2-color)
+  show heading.where(level: 2): set block(above: 2.4em, below: 1.4em)
+  show heading.where(level: 3): set text(size: 12pt, weight: "bold", fill: h3-color)
+  show heading.where(level: 3): set block(above: 1.8em, below: 1.1em)
+  show heading.where(level: 4): set text(size: 10.5pt, weight: "bold", fill: h3-color)
+  show heading.where(level: 4): set block(above: 1.6em, below: 1em)
+  show heading.where(level: 5): set text(size: 10.5pt, weight: "bold", style: "italic", fill: h3-color)
+  show heading.where(level: 5): set block(above: 1.6em, below: 1em)
+  show heading.where(level: 6): set text(size: 10.5pt, style: "italic", fill: h3-color)
+  show heading.where(level: 6): set block(above: 1.6em, below: 1em)
 
-#set raw(block: false, size: 9pt, font: "DejaVu Sans Mono", fill: rgb("#F3F0F8"), radius: 4pt, inset: 9pt)
+  set list(spacing: 0.65em)
+  show list: set block(below: 1.3em)
+  show enum: set block(below: 1.3em)
 
-#show link: it => {
-  set text(fill: rgb("#4A2F8F"))
-  it
-}
+  show raw: set text(font: "DejaVu Sans Mono", size: 8pt)
+  show raw.where(block: true): it => block(
+    width: 100%,
+    fill: rgb("#F3F0F8"),
+    inset: 9pt,
+    radius: 4pt,
+    breakable: true,
+    it,
+  )
 
-#show quote: it => {
-  set block(
+  show link: set text(fill: link-color)
+
+  show quote.where(block: true): it => block(
     width: 100%,
     fill: rgb("#F0EBF8"),
     inset: (x: 10pt, y: 8pt),
-    stroke: (left: 2.5pt + rgb("#5B3FA0")),
-    radius: (0, 3pt, 3pt, 0),
+    stroke: (left: 2.5pt + accent),
+    radius: (right: 3pt),
+    above: 1em,
+    below: 1em,
+    {
+      set text(size: 10pt)
+      set par(spacing: 0.6em)
+      it.body
+    },
   )
-  set par(spacing: 0.6em)
-  set text(size: 10pt)
-  v(1em)
-  it
-  v(1em)
+
+  // Tables (Appendix B). Header rows come from `table.header(...)`, which is what makes them
+  // `TH` cells in the tagged PDF; bold and fill here are only the look.
+  set table(
+    inset: 4pt,
+    stroke: (x: none, y: 0.4pt + rule-color),
+    fill: (_, y) => if y == 0 { rgb("#E9E3F6") } else if calc.even(y) { rgb("#F5F3F9") } else { none },
+  )
+  set table.cell(breakable: false)
+  show table.header: set text(weight: "bold")
+  show table: set text(hyphenate: true)
+  show table: set block(above: 1.8em, below: 1.8em)
+
+  body
 }
 
-#show rule: it => {
-  set align(center)
-  set text(size: 0)
-  line(length: 30%, stroke: 0.6pt + rgb("#D3CCE4"))
-  v(1.4em)
-}
+// A thematic break: centred line, 30 % of the width.
+#let hr() = align(center, block(above: 1.4em, below: 1.4em, line(length: 30%, stroke: 0.6pt + rule-color)))
 
-#let lead(text) = {
-  set text(weight: 700, fill: rgb("#5B3FA0"))
-  text
-}
+// Lead-in label of a paragraph.
+#let lead(body) = text(weight: "bold", fill: accent, body)
 
-#let external-link-arrow = image("arrow.svg", height: 0.6em)
+// External link followed by a small arrow icon with alt text.
+#let ext-link(url, body) = link(url)[#body#h(0.2em)#box(image("/arrow.svg", height: 0.6em, alt: "external link"))]
 
-#show link.where(.dest != none): it => {
-  let dest = it.dest
-  if dest.starts_with("http") or dest.startsWith("//") or dest.contains(":") {
-    it + " " + #external-link-arrow
+// Largest height an image or diagram may take: most of the text area, so a tall picture never
+// outgrows a page (an unbreakable block taller than the page is clipped).
+#let max-image-height = (297mm - 2 * margin-y) * 0.85
+
+// A picture inside the text area. `upscale: true` scales it to the full text width (body
+// photos); `false` never scales beyond its natural size (diagrams, whose text is sized by the
+// diagram theme). Either way it is shrunk to fit the text width and `max-image-height`.
+// `alt: none` marks it as decorative (an artifact).
+#let fitted-image(path, alt, upscale) = block(width: 100%, above: 1em, below: 1em, breakable: false, layout(size => {
+  let natural = measure(image(path))
+  let factor = calc.min(
+    size.width / natural.width,
+    max-image-height / natural.height,
+  )
+  if not upscale { factor = calc.min(factor, 1) }
+  let shown = if alt == none {
+    pdf.artifact(kind: "layout", image(path, width: natural.width * factor))
   } else {
-    it
+    image(path, width: natural.width * factor, alt: alt)
+  }
+  align(center, shown)
+}))
+
+// A body image scaled to the text width.
+#let hideo-image(path, alt: none) = fitted-image(path, alt, true)
+
+// A diagram: never larger than its natural size.
+#let hideo-diagram(path, alt: none) = fitted-image(path, alt, false)
+
+// The head of a content page: hero pulled into the margins, subtitle, author line.
+// A hero is decorative (an artifact) unless it has alt text (decision D9).
+#let page-head(hero: none, hero-alt: none, subtitle: none, author: none) = {
+  if hero != none {
+    let picture = if hero-alt == none {
+      pdf.artifact(kind: "layout", image(hero, width: 100%))
+    } else {
+      image(hero, width: 100%, alt: hero-alt)
+    }
+    pad(x: -margin-x, top: -margin-y, picture)
+    v(5mm)
+  }
+  if subtitle != none {
+    text(size: 12pt, fill: muted, subtitle)
+    v(8pt)
+  }
+  if author != none {
+    text(size: 9pt, fill: muted, author)
+    v(5mm)
   }
 }
 
-#set table(
-  inset: (x: 4pt, y: 4pt),
-  stroke: (x: 0pt, y: 0.4pt + rgb("#D3CCE4")),
-  fill: (_, _) => none,
-  columns: 1fr,
+// Full-bleed cover: image, then a panel with title, tier line and author in reading order.
+#let cover(picture, title, tier-line, author, panel-width, panel-offset) = page(
+  margin: 0pt,
+  footer: none,
+  {
+    pdf.artifact(kind: "layout", image(picture, width: 100%, height: 100%, fit: "cover"))
+    place(
+      top + left,
+      dx: panel-offset,
+      dy: panel-offset,
+      block(width: panel-width, fill: panel-color, radius: 4pt, inset: 16pt, {
+        set text(fill: white)
+        set par(spacing: 0.9em)
+        text(size: 24pt, weight: "bold", title)
+        parbreak()
+        text(size: 16pt, tier-line)
+        parbreak()
+        text(size: 12pt, author)
+      }),
+    )
+  },
 )
 
-#show table: it => {
-  set block(above: 1.8em, below: 1.8em)
-  it
-}
+// One line of the contents: title, dotted leader (an artifact, so screen readers do not read
+// a run of dots), page number looked up from the page's label.
+#let toc-entry(title, target) = block(above: 0.55em, below: 0pt, width: 100%, link(target)[
+  #title#box(width: 1fr, pdf.artifact(kind: "layout", repeat[.]))#context counter(page).at(target).first()
+])
 
-// Cover page
-#set page(numbering: none)
-#image("{{COVER_IMAGE}}", width: 100%, height: 100%)
-#place(
-  dx: {{PANEL_OFFSET_MM}}mm,
-  dy: {{PANEL_OFFSET_MM}}mm,
-  box(
-    width: {{PANEL_WIDTH_MM}}mm,
-    fill: rgb("#2E1A5C"),
-    radius: 4pt,
-    inset: 16pt,
-    set text(fill: white)
-    align(center)[
-      #text(size: 24pt, weight: 700)[{{BOOK_TITLE}}]
-      #v(8pt)
-      #text(size: 16pt)[{{TIER_LINE}}]
-      #v(8pt)
-      #text(size: 12pt)[{{BOOK_AUTHOR}}]
-    ]
-  )
-)
+#let toc-group(name) = block(above: 1em, below: 0pt, sticky: true, text(size: 8.5pt, weight: "bold", fill: h2-color, name))
 
-// Contents page
-#set page(numbering: none)
-#if "{{CONTENTS_HERO}}" != "" {
-  #pad(x: -{{MARGIN_X_MM}}mm, top: -{{MARGIN_Y_MM}}mm)[#image("{{CONTENTS_HERO}}", width: 100%)]
-  #v(5mm)
-}
-#set text(size: 19pt, weight: 700, fill: rgb("#24134D"))
-Contents
-#v(1.5em)
-#set text(size: 7.5pt, leading: 0.4em)
-#columns({{CONTENTS_COLUMNS}}, gutter: 6mm)[
-  {{PAGE_INCLUDES}}
-]
-
-// Page footer with page numbers (except cover)
-#show page: it => {
-  set page(numbering: "1")
-  set align(center)
-  set text(size: 8pt, fill: rgb("#6E6682"))
-  it
-  if counter(page).get() > 1 {
-    place(bottom + center, vy: -12pt)[
-      context { counter(page).display() }
-    ]
+// The contents page. `entries` is an array of (group: str|none, title: str, target: label).
+#let contents(hero, title, columns-count, entries) = {
+  pagebreak(weak: true)
+  if hero != none {
+    pad(x: -margin-x, top: -margin-y, pdf.artifact(kind: "layout", image(hero, width: 100%)))
+    v(5mm)
   }
+  heading(level: 1, outlined: false, title)
+  set text(size: 7.5pt)
+  set par(leading: 0.4em)
+  columns(columns-count, gutter: 6mm, {
+    let current = none
+    for e in entries {
+      if e.group != none and e.group != current {
+        toc-group(e.group)
+        current = e.group
+      }
+      toc-entry(e.title, e.target)
+    }
+  })
 }
-
-// Hero image pulled into margins for content pages
-#show heading.where(level: 1).where(
-  it => query(selector("page").before(it)).len() > 0
-): it => {
-  it
-}
-
-// Main content pages
-{{PAGE_INCLUDES}}

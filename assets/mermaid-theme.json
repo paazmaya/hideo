@@ -1,6 +1,9 @@
 {
   "theme": "base",
   "look": "neo",
+  "htmlLabels": false,
+  "fontFamily": "Libertinus Serif",
+  "handDrawnSeed": 1,
   "themeVariables": {
     "fontFamily": "Libertinus Serif",
     "fontSize": "22.4px",

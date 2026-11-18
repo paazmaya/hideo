@@ -1,6 +1,6 @@
 ---
 title: "Edge Cases"
-hero: "hero.png"
+hero: "images/not-there.png"
 ---
 
 # Unicode Headings
@@ -9,46 +9,74 @@ hero: "hero.png"
 
 Content with unicode.
 
+## Ångström & co.
+
 ## 日本語
 
-Japanese content.
-
----
+Japanese content that the embedded fonts do not cover.
 
 # Long Table Strings
 
-| Header | VeryLongColumnNameThatShouldBeWrapped |
-|--------|---------------------------------------|
+| Header | VeryLongColumnNameThatShouldBeWrapped                                 |
+| ------ | --------------------------------------------------------------------- |
 | Cell   | ThisIsAVeryLongStringWithoutSpacesThatShouldBeBrokenByZeroWidthSpaces |
-
----
-
-# Missing Hero
-
----
-title: "Missing Hero"
----
-
-This page has no hero image.
-
----
 
 # Unresolved Links
 
-Link to [missing page](missing.md) and [missing anchor](#nonexistent).
+A [missing page](nope.md), a [missing anchor](#nope), and a [directory](nowhere/).
+Link with [wrong case](02_MISSING_CASE.MD) and an [external](https://example.com/).
 
----
+# Pathological
 
-# Pathological Markdown
-
-* a_
-* a_
-* a_
+*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_*a\_*a_
 
 [^
 [^
 [^
-
-Footnote reference [^1].
-
-[^1]: Footnote definition.
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^
+[^

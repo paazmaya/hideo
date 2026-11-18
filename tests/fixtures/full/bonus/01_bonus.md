@@ -1,17 +1,12 @@
 ---
-title: "Bonus Content"
-hero: "hero9.png"
+title: "Bonus Material"
+hero: "images/hero.png"
 ---
 
-# Bonus Tier
+# Bonus Material
 
-Bonus content here.
+The bonus tier has a single page.
 
-## Bonus Page 1
+## Bonus Content
 
----
-title: "Bonus Page 1"
-hero: "hero10.png"
----
-
-Some bonus content.
+Content.

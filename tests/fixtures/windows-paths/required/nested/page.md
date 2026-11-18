@@ -1,8 +1,8 @@
 ---
-title: "Nested Page"
-hero: "hero.png"
+title: "Nested"
+hero: "images/hero.png"
 ---
 
-# Nested Page
+# Nested
 
-This is a page in a nested folder.
+Up: [windows](../01_windows.md).

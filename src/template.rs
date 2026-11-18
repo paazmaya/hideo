@@ -1,178 +1,447 @@
-use std::collections::HashMap;
-use camino::Utf8PathBuf;
-use crate::config::Config;
-use crate::page::Page;
-use crate::images::ProcessedImage;
+//! Generation of the virtual Typst files: `template.typ`, `main.typ` and one file per page
+//! (plan 7.2 step 9, 7.9).
 
-pub struct Template {
-    pub source: String,
+use crate::compile::SourceMap;
+use crate::config::{Config, capitalize};
+use crate::markdown::emit::PageMarkup;
+use crate::markdown::escape::{Position, escape_text, typst_string};
+use crate::page::Page;
+
+pub const TEMPLATE_SOURCE: &str = include_str!("../assets/template.typ");
+pub const ARROW_SVG: &[u8] = include_bytes!("../assets/arrow.svg");
+
+/// Number as Typst source: `210` and `118.125`, never exponent notation.
+fn num(n: f64) -> String {
+    format!("{n}")
 }
 
-impl Template {
-    pub fn load() -> anyhow::Result<Self> {
-        let source = include_str!("../../assets/template.typ").to_string();
-        Ok(Self { source })
+/// `template.typ` with the configuration tokens filled in.
+pub fn template_typ(config: &Config) -> String {
+    TEMPLATE_SOURCE
+        .replace("{{MARGIN_X_MM}}", &num(config.page.margin_x_mm))
+        .replace("{{MARGIN_Y_MM}}", &num(config.page.margin_y_mm))
+        .replace("{{PAGE_WIDTH_MM}}", &num(config.page.width_mm))
+}
+
+/// PDF title: the book title plus the tier (plan 7.10 item 2).
+pub fn document_title(config: &Config, tier: &str) -> String {
+    format!("{} \u{2013} {}", config.cover.title, capitalize(tier))
+}
+
+/// A page with its resolved hero image, in PDF order.
+pub struct PageEntry<'a> {
+    pub page: &'a Page,
+    /// Virtual path of the hero (real image or placeholder).
+    pub hero: Option<String>,
+    /// Index into the page list, 1-based, used for the file name `pages/001.typ`.
+    pub number: usize,
+}
+
+pub fn page_vpath(number: usize) -> String {
+    format!("pages/{number:03}.typ")
+}
+
+/// `main.typ`: document setup, cover, contents, includes.
+pub fn main_typ(
+    config: &Config,
+    tier: &str,
+    entries: &[PageEntry],
+    cover: &str,
+    contents_hero: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    out.push_str("#import \"/template.typ\": *\n");
+    out.push_str(&format!(
+        "#show: book.with(lang: {}, title: {}, author: {})\n",
+        typst_string(&config.book.lang),
+        typst_string(&document_title(config, tier)),
+        typst_string(&config.cover.author),
+    ));
+    out.push_str(&format!(
+        "#cover({}, {}, {}, {}, {}mm, {}mm)\n",
+        typst_string(cover),
+        typst_string(&config.cover.title),
+        typst_string(&config.tier_line(tier)),
+        typst_string(&config.cover.author),
+        num(config.cover.panel_width_mm),
+        num(config.cover.panel_offset_mm),
+    ));
+
+    let hero = contents_hero
+        .map(typst_string)
+        .unwrap_or_else(|| "none".to_string());
+    out.push_str(&format!(
+        "#contents({hero}, {}, {}, (\n",
+        typst_string(&config.contents.title),
+        config.contents.columns
+    ));
+    let prefix = format!("{tier}/");
+    for e in entries {
+        let in_tier = e
+            .page
+            .rel_path
+            .strip_prefix(&prefix)
+            .unwrap_or(&e.page.rel_path);
+        let group = match in_tier.rsplit_once('/') {
+            Some((dir, _)) => typst_string(dir),
+            None => "none".to_string(),
+        };
+        out.push_str(&format!(
+            "  (group: {group}, title: {}, target: <{}>),\n",
+            typst_string(e.page.title()),
+            e.page.key
+        ));
+    }
+    out.push_str("))\n");
+
+    for e in entries {
+        out.push_str(&format!(
+            "#include {}\n",
+            typst_string(&page_vpath(e.number))
+        ));
+    }
+    out
+}
+
+/// One page file and its source map. Preamble lines map to Markdown line 1.
+pub fn page_typ(config: &Config, entry: &PageEntry, markup: &PageMarkup) -> (String, SourceMap) {
+    let page = entry.page;
+    let fm = &page.frontmatter;
+    let mut lines: Vec<(String, u32)> = Vec::new();
+    let mut push = |text: String, md: u32| lines.push((text, md));
+
+    push("#import \"/template.typ\": *".to_string(), 1);
+    push("#pagebreak(weak: true)".to_string(), 1);
+    push(format!("#metadata(none) <{}>", page.key), 1);
+
+    let mut args = Vec::new();
+    if let Some(hero) = &entry.hero {
+        args.push(format!("hero: {}", typst_string(hero)));
+        if let Some(alt) = fm.hero_alt.as_deref().filter(|a| !a.trim().is_empty()) {
+            args.push(format!("hero-alt: {}", typst_string(alt)));
+        }
+    }
+    if let Some(s) = fm.subtitle.as_deref().filter(|s| !s.trim().is_empty()) {
+        args.push(format!("subtitle: {}", typst_string(s)));
+    }
+    if let Some(a) = fm.author.as_deref().filter(|a| !a.trim().is_empty()) {
+        args.push(format!("author: {}", typst_string(a)));
+    }
+    if !args.is_empty() {
+        push(format!("#page-head({})", args.join(", ")), 1);
     }
 
-    pub fn render_main(
-        &self,
-        config: &Config,
-        tier: &str,
-        pages: &[Page],
-        cover_image: &ProcessedImage,
-        contents_hero: Option<&ProcessedImage>,
-        diagram_files: &HashMap<String, String>,
-    ) -> String {
-        let mut output = self.source.clone();
-
-        output = output.replace("{{TIER}}", tier);
-        output = output.replace("{{BOOK_TITLE}}", &config.cover.title);
-        output = output.replace("{{BOOK_AUTHOR}}", &config.cover.author);
-        output = output.replace("{{TIER_LINE}}", &config.cover.tier_line.replace("{Tier}", &tier.to_uppercase()));
-        output = output.replace("{{PAGE_WIDTH_MM}}", &config.page.width_mm.to_string());
-        output = output.replace("{{MARGIN_X_MM}}", &config.page.margin_x_mm.to_string());
-        output = output.replace("{{MARGIN_Y_MM}}", &config.page.margin_y_mm.to_string());
-        output = output.replace("{{HERO_HEIGHT_MM}}", &config.page.hero_height_mm.to_string());
-        output = output.replace("{{CONTENTS_COLUMNS}}", &config.contents.columns.to_string());
-        output = output.replace("{{COVER_IMAGE}}", &cover_image.virtual_path);
-        output = output.replace("{{PANEL_WIDTH_MM}}", &config.cover.panel_width_mm.to_string());
-        output = output.replace("{{PANEL_OFFSET_MM}}", &config.cover.panel_offset_mm.to_string());
-        output = output.replace("{{BOOK_LANG}}", &config.book.lang);
-
-        if let Some(contents_hero) = contents_hero {
-            output = output.replace("{{CONTENTS_HERO}}", &contents_hero.virtual_path);
-        } else {
-            output = output.replace("{{CONTENTS_HERO}}", "");
-        }
-
-        let mut includes = String::new();
-        for (i, page) in pages.iter().enumerate() {
-            let page_num = i + 1;
-            includes.push_str(&format!("#include \"pages/{:03}.typ\"\n", page_num));
-        }
-        output = output.replace("{{PAGE_INCLUDES}}", &includes);
-
-        output
+    // Every page has a heading (outline entry, navigation): use the title if the body has none.
+    if page.headings.is_empty() {
+        push(
+            format!(
+                "#heading(level: 1)[{}] <{}--page-title>",
+                escape_text(page.title(), Position::LineStart),
+                page.key
+            ),
+            1,
+        );
     }
 
-    pub fn render_page(
-        &self,
-        config: &Config,
-        page: &Page,
-        hero_image: Option<&ProcessedImage>,
-        page_num: usize,
-        total_pages: usize,
-        body_markup: &str,
-    ) -> String {
-        let mut output = String::new();
-
-        output.push_str(&format!("#set page(width: {}mm, height: 297mm, margin: (x: {}mm, y: {}mm))\n",
-            config.page.width_mm, config.page.margin_x_mm, config.page.margin_y_mm));
-
-        if page_num == 1 {
-            output.push_str("#set page(numbering: none)\n");
+    let wrap_lang = fm.lang.as_deref().filter(|l| *l != config.book.lang);
+    if let Some(lang) = wrap_lang {
+        push("#[".to_string(), 1);
+        push(format!("#set text(lang: {})", typst_string(lang)), 1);
+    }
+    if !markup.text.is_empty() {
+        for (text, md) in markup.text.split('\n').zip(markup.line_map.iter()) {
+            push(text.to_string(), *md);
         }
-
-        output.push_str(&format!("#set text(lang: \"{}\")\n", page.frontmatter.lang.as_deref().unwrap_or(&config.book.lang)));
-
-        if let Some(hero) = hero_image {
-            output.push_str(&format!("#pad(x: -{}mm, top: -{}mm)[#image(\"{}\", width: 100%)]\n",
-                config.page.margin_x_mm, config.page.margin_y_mm, hero.virtual_path));
-            output.push_str("#v(5mm)\n");
-        }
-
-        if let Some(subtitle) = &page.frontmatter.subtitle {
-            output.push_str(&format!("#set text(size: 12pt, fill: rgb(\"6E6682\"))\n{}\n#v(8pt)\n", subtitle));
-        }
-
-        if let Some(author) = &page.frontmatter.author {
-            output.push_str(&format!("#set text(size: 9pt, fill: rgb(\"6E6682\"))\n{}\n#v(5mm)\n", author));
-        }
-
-        output.push_str(body_markup);
-        output.push('\n');
-
-        if page_num > 1 {
-            output.push_str(&format!("#set page(numbering: \"1\", number-format: \"1\")\n"));
-            output.push_str("#set align(center)\n#set text(size: 8pt, fill: rgb(\"6E6682\"))\n");
-            output.push_str(&format!("#context {{ counter(page).display() }}\n"));
-        }
-
-        output
+    }
+    if wrap_lang.is_some() {
+        let last = markup.line_map.last().copied().unwrap_or(1);
+        push("]".to_string(), last);
     }
 
-    pub fn render_cover(&self, config: &Config, tier: &str, cover_image: &ProcessedImage) -> String {
-        let mut output = String::new();
+    let text = lines
+        .iter()
+        .map(|(t, _)| t.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let map = SourceMap {
+        page: page.rel_path.clone(),
+        lines: lines.iter().map(|(_, l)| *l).collect(),
+    };
+    (text, map)
+}
 
-        output.push_str(&format!("#set page(width: {}mm, height: 297mm, margin: 0, numbering: none)\n",
-            config.page.width_mm));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discover::SourcePage;
+    use crate::frontmatter::Frontmatter;
+    use camino::{Utf8Path, Utf8PathBuf};
 
-        output.push_str(&format!("#image(\"{}\", width: 100%, height: 100%)\n", cover_image.virtual_path));
-
-        output.push_str(&format!("#place(
-  dx: {}mm,
-  dy: {}mm,
-  #box(
-    width: {}mm,
-    fill: rgb(\"2E1A5C\"),
-    radius: 4pt,
-    inset: 16pt,
-    #set text(fill: white)
-    #align(center)[
-      #text(size: 24pt, weight: 700)[{}]\n",
-            config.cover.panel_offset_mm,
-            config.cover.panel_offset_mm,
-            config.cover.panel_width_mm,
-            config.cover.title));
-
-        output.push_str(&format!("      #v(8pt)\n      #text(size: 16pt)[{}]\n", config.cover.tier_line.replace("{Tier}", &tier.to_uppercase())));
-        output.push_str(&format!("      #v(8pt)\n      #text(size: 12pt)[{}]\n", config.cover.author));
-        output.push_str("    ]\n  )\n)\n");
-
-        output
+    fn config() -> Config {
+        Config::from_toml(
+            "tiers=[\"req\"]\n[book]\nlang=\"fi\"\n[cover]\ntitle=\"My \\\"Book\\\"\"\nauthor=\"A. Author\"\n",
+            Utf8Path::new("."),
+        )
+        .unwrap()
     }
 
-    pub fn render_contents(&self, config: &Config, pages: &[Page], contents_hero: Option<&ProcessedImage>) -> String {
-        let mut output = String::new();
+    fn page(rel: &str, key: &str, fm: Frontmatter, body: &str) -> Page {
+        Page::build(
+            SourcePage {
+                tier: "req".into(),
+                rel_path: rel.into(),
+                abs_path: Utf8PathBuf::from(rel),
+                frontmatter: fm,
+                body: body.into(),
+            },
+            key.into(),
+        )
+        .unwrap()
+    }
 
-        output.push_str(&format!("#set page(width: {}mm, height: 297mm, margin: (x: {}mm, y: {}mm))\n",
-            config.page.width_mm, config.page.margin_x_mm, config.page.margin_y_mm));
-        output.push_str("#set page(numbering: none)\n");
-        output.push_str(&format!("#set text(lang: \"{}\")\n", config.book.lang));
-
-        if let Some(hero) = contents_hero {
-            output.push_str(&format!("#pad(x: -{}mm, top: -{}mm)[#image(\"{}\", width: 100%)]\n",
-                config.page.margin_x_mm, config.page.margin_y_mm, hero.virtual_path));
-            output.push_str("#v(5mm)\n");
+    fn fm(title: &str) -> Frontmatter {
+        Frontmatter {
+            title: Some(title.into()),
+            hero: Some("h.png".into()),
+            ..Default::default()
         }
+    }
 
-        output.push_str("#set text(size: 19pt, weight: 700, fill: rgb(\"24134D\"))\n");
-        output.push_str("Contents\n");
-        output.push_str("#v(1.5em)\n");
+    #[test]
+    fn tokens_are_filled() {
+        let t = template_typ(&config());
+        assert!(!t.contains("{{"), "unfilled token");
+        assert!(t.contains("#let margin-x = 20mm"));
+        assert!(t.contains("#let page-width = 210mm"));
+    }
 
-        output.push_str(&format!("#set text(size: 7.5pt, leading: 0.4em)\n"));
-        output.push_str(&format!("#columns({}, gutter: 6mm)[\n", config.contents.columns));
+    #[test]
+    fn main_typ_has_cover_contents_and_includes() {
+        let cfg = config();
+        let a = page("req/01.md", "req-01", fm("First: \"A\""), "text");
+        let b = page("req/sub/02.md", "req-sub-02", fm("Second"), "text");
+        let entries = vec![
+            PageEntry {
+                page: &a,
+                hero: None,
+                number: 1,
+            },
+            PageEntry {
+                page: &b,
+                hero: None,
+                number: 2,
+            },
+        ];
+        let main = main_typ(&cfg, "req", &entries, "images/c.jpg", Some("images/ch.jpg"));
+        assert!(main.contains(r#"title: "My \"Book\" – Req""#), "{main}");
+        assert!(main.contains(r#"lang: "fi""#));
+        assert!(main.contains(r#"#cover("images/c.jpg", "My \"Book\"", "Req course material", "A. Author", 170mm, 20mm)"#), "{main}");
+        assert!(main.contains(r#"#contents("images/ch.jpg", "Contents", 2, ("#));
+        assert!(main.contains(r#"(group: none, title: "First: \"A\"", target: <req-01>),"#));
+        assert!(main.contains(r#"(group: "sub", title: "Second", target: <req-sub-02>),"#));
+        assert!(main.contains("#include \"pages/001.typ\"\n#include \"pages/002.typ\""));
+    }
 
-        let mut current_folder = String::new();
-        for (i, page) in pages.iter().enumerate() {
-            let folder = page.path.parent().map(|p| p.to_string()).unwrap_or_default();
-            if folder != current_folder && !folder.is_empty() {
-                if !current_folder.is_empty() {
-                    output.push_str("#v(1em)\n");
-                }
-                current_folder = folder.clone();
-                output.push_str(&format!("#set text(size: 8.5pt, weight: 700, fill: rgb(\"3D2A7A\"))\n{}", folder));
-                output.push_str("#v(0.5em)\n");
+    #[test]
+    fn page_typ_head_title_and_line_map() {
+        let cfg = config();
+        let mut f = fm("Fallback title");
+        f.subtitle = Some("Sub".into());
+        f.author = Some("Me".into());
+        f.hero_alt = Some("A view".into());
+        let p = page("req/01.md", "req-01", f, "body line");
+        let entry = PageEntry {
+            page: &p,
+            hero: Some("images/h.jpg".into()),
+            number: 1,
+        };
+        let markup = PageMarkup {
+            text: "one\n\ntwo".into(),
+            line_map: vec![8, 9, 10],
+        };
+        let (text, map) = page_typ(&cfg, &entry, &markup);
+        assert!(text.contains("#metadata(none) <req-01>"));
+        assert!(text.contains(r#"#page-head(hero: "images/h.jpg", hero-alt: "A view", subtitle: "Sub", author: "Me")"#), "{text}");
+        assert!(
+            text.contains("#heading(level: 1)[Fallback title] <req-01--page-title>"),
+            "page without headings gets the title"
+        );
+        assert_eq!(text.split('\n').count(), map.lines.len());
+        assert_eq!(map.page, "req/01.md");
+        let idx = text.split('\n').position(|l| l == "two").unwrap();
+        assert_eq!(map.lines[idx], 10);
+    }
+
+    #[test]
+    fn page_with_headings_does_not_get_title_heading_and_lang_wraps_body() {
+        let cfg = config();
+        let mut f = fm("T");
+        f.lang = Some("en".into());
+        let p = page("req/01.md", "req-01", f, "# Own heading\n");
+        let entry = PageEntry {
+            page: &p,
+            hero: None,
+            number: 1,
+        };
+        let markup = PageMarkup {
+            text: "#heading(level: 1)[Own heading] <x>".into(),
+            line_map: vec![5],
+        };
+        let (text, _) = page_typ(&cfg, &entry, &markup);
+        assert!(!text.contains("page-title"));
+        assert!(
+            text.contains("#[\n#set text(lang: \"en\")\n#heading"),
+            "{text}"
+        );
+        assert!(text.ends_with("\n]"));
+        // same language as the book: no wrapper
+        let mut f = fm("T");
+        f.lang = Some("fi".into());
+        let p = page("req/01.md", "req-01", f, "# H\n");
+        let entry = PageEntry {
+            page: &p,
+            hero: None,
+            number: 1,
+        };
+        let (text, _) = page_typ(&cfg, &entry, &markup);
+        assert!(!text.contains("#set text(lang"));
+    }
+
+    #[test]
+    fn page_numbers_are_zero_padded() {
+        assert_eq!(page_vpath(7), "pages/007.typ");
+        assert_eq!(page_vpath(1234), "pages/1234.typ");
+    }
+
+    // ---- palette contrast (plan 7.10 item 8, Appendix B) ----------------------------------
+
+    /// `#RRGGBB` as linear-light relative luminance (WCAG 2.x).
+    fn luminance(hex: &str) -> f64 {
+        let channel = |i: usize| {
+            let v = u8::from_str_radix(&hex[1 + 2 * i..3 + 2 * i], 16).unwrap() as f64 / 255.0;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
             }
+        };
+        0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
+    }
 
-            let page_num = i + 1;
-            let title = page.frontmatter.title.as_deref().unwrap_or("Untitled");
-            let page_label = format!("<{}>", page.key);
-            output.push_str(&format!("#h(0.55em)[#link({})[{}]]\n", page_label, title));
+    fn contrast(a: &str, b: &str) -> f64 {
+        let (la, lb) = (luminance(a), luminance(b));
+        let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// The colour a `#let name = rgb("#...")` constant in the template has.
+    fn template_color(name: &str) -> String {
+        let marker = format!("#let {name} = rgb(\"");
+        let start = TEMPLATE_SOURCE
+            .find(&marker)
+            .unwrap_or_else(|| panic!("no #let {name} in template"))
+            + marker.len();
+        TEMPLATE_SOURCE[start..start + 7].to_string()
+    }
+
+    /// A fill used as a literal in the template; fails if the template no longer contains it.
+    fn literal(hex: &str) -> String {
+        assert!(
+            TEMPLATE_SOURCE
+                .to_lowercase()
+                .contains(&format!("\"{}\"", hex.to_lowercase())),
+            "{hex} not in the template"
+        );
+        hex.to_string()
+    }
+
+    #[test]
+    fn test_palette_contrast_at_least_4_5() {
+        const WHITE: &str = "#FFFFFF";
+        let ink = template_color("ink");
+        let quote = literal("#F0EBF8");
+        let code = literal("#F3F0F8");
+        let header = literal("#E9E3F6");
+        let zebra = literal("#F5F3F9");
+        // (foreground, background, ratio stated in Appendix B)
+        let pairs = [
+            ("body on white", ink.clone(), WHITE.to_string(), 14.92),
+            (
+                "h1 on white",
+                template_color("h1-color"),
+                WHITE.to_string(),
+                16.47,
+            ),
+            (
+                "h2 on white",
+                template_color("h2-color"),
+                WHITE.to_string(),
+                11.60,
+            ),
+            (
+                "h3 on white",
+                template_color("h3-color"),
+                WHITE.to_string(),
+                8.78,
+            ),
+            (
+                "footer/subtitle on white",
+                template_color("muted"),
+                WHITE.to_string(),
+                5.40,
+            ),
+            (
+                "link on white",
+                template_color("link-color"),
+                WHITE.to_string(),
+                10.03,
+            ),
+            (
+                "link on quote fill",
+                template_color("link-color"),
+                quote.clone(),
+                8.57,
+            ),
+            (
+                "lead-in on white",
+                template_color("accent"),
+                WHITE.to_string(),
+                7.88,
+            ),
+            (
+                "lead-in on quote fill",
+                template_color("accent"),
+                quote.clone(),
+                6.74,
+            ),
+            ("quote text", ink.clone(), quote, 12.75),
+            ("code text", ink.clone(), code, 13.23),
+            ("table text on header fill", ink.clone(), header, 11.92),
+            ("table text on zebra fill", ink, zebra, 13.55),
+            (
+                "cover white on panel",
+                WHITE.to_string(),
+                template_color("panel-color"),
+                14.80,
+            ),
+        ];
+        for (what, fg, bg, stated) in pairs {
+            let ratio = contrast(&fg, &bg);
+            assert!(
+                ratio >= 4.5,
+                "{what}: {fg} on {bg} is {ratio:.2}:1, AA needs 4.5:1"
+            );
+            assert!(
+                (ratio - stated).abs() < 0.05,
+                "{what}: computed {ratio:.2}, Appendix B says {stated}"
+            );
         }
+    }
 
-        output.push_str("]\n");
-
-        output
+    #[test]
+    fn contrast_function_matches_known_values() {
+        assert!((contrast("#000000", "#FFFFFF") - 21.0).abs() < 1e-9);
+        assert!((contrast("#777777", "#FFFFFF") - 4.48).abs() < 0.01);
+        assert!((contrast("#FFFFFF", "#FFFFFF") - 1.0).abs() < 1e-9);
     }
 }

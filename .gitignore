@@ -60,10 +60,17 @@ typings/
 
 # next.js build output
 .next
+!tests/**/*.pdf
 
 /target
+
+# hideo output and cache
 /pdf-output
 /.hideo-cache
 *.pdf
 !tests/**/*.pdf
+
+# Editors and OS
 .DS_Store
+Thumbs.db
+.nyc_output/

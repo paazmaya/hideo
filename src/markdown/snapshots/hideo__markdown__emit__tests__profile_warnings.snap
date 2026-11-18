@@ -1,0 +1,6 @@
+---
+source: src/markdown/emit.rs
+expression: "warnings.join(\"\n\")"
+---
+warning[W002]: t/p.md:43: inline HTML is not supported; it was dropped
+warning[W002]: t/p.md:43: inline HTML is not supported; it was dropped

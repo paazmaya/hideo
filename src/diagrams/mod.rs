@@ -1,144 +1,704 @@
-pub mod native;
+//! Diagram rendering (plan 7.7, F15).
+//!
+//! The backend is a command contract: an `mmdc`-compatible CLI (`mmdr` has the same flags).
+//! Whatever the backend, [`check_svg`] enforces the post-conditions: the output is an SVG and it
+//! contains no `<foreignObject>` (Typst renders those incorrectly, labels vanish).
+
 pub mod external;
+#[cfg(feature = "native-diagrams")]
+pub mod native;
 
-use std::collections::HashMap;
-use blake3;
-use crate::config::DiagramsConfig;
-use crate::error::{DiagnosticCollector, HideoError, ErrorCode, Warning, WarningCode};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
-pub trait DiagramRenderer: Send + Sync {
-    fn render(&self, source: &str, theme: &Theme) -> Result<String, DiagramError>;
-    fn name(&self) -> &'static str;
-}
+use rayon::prelude::*;
+
+use crate::config::DEFAULT_DIAGRAM_THEME;
+use crate::error::{ErrorCode, HideoError, Warning, WarningCode};
+
+/// Bump when diagram post-processing changes, to invalidate caches.
+pub const DIAGRAM_PIPELINE_VERSION: &str = "hideo_diagram_v1";
+
+/// Font families embedded in the binary (via `typst-kit/embedded-fonts`).
+pub const EMBEDDED_FAMILIES: [&str; 4] = [
+    "libertinus serif",
+    "new computer modern",
+    "new computer modern math",
+    "dejavu sans mono",
+];
 
 #[derive(Debug, Clone)]
 pub struct Theme {
-    pub config: serde_json::Value,
+    pub json: String,
 }
 
 impl Theme {
-    pub fn load(path: &Utf8PathBuf) -> Result<Self, anyhow::Error> {
-        let content = std::fs::read_to_string(path)?;
-        let config = serde_json::from_str(&content)?;
-        Ok(Self { config })
+    pub fn embedded() -> Self {
+        Self {
+            json: DEFAULT_DIAGRAM_THEME.to_string(),
+        }
+    }
+
+    pub fn from_file(path: &Path) -> Result<Self, String> {
+        let json = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read diagram theme {}: {e}", path.display()))?;
+        serde_json::from_str::<serde_json::Value>(&json)
+            .map_err(|e| format!("diagram theme {} is not valid JSON: {e}", path.display()))?;
+        Ok(Self { json })
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiagramError {
-    #[error("render failed: {0}")]
+    #[error("{0}")]
     RenderFailed(String),
-    #[error("timeout")]
-    Timeout,
-    #[error("foreign object not allowed")]
+    #[error("the renderer did not finish within {0} seconds and was killed")]
+    Timeout(u64),
+    #[error(
+        "the output contains <foreignObject>, which Typst renders incorrectly (labels vanish); set htmlLabels to false in the diagram theme"
+    )]
     ForeignObject,
-    #[error("invalid SVG output")]
+    #[error("the output is not an SVG document")]
     InvalidSvg,
-    #[error("io error: {0}")]
+    #[error("{0}")]
     Io(#[from] std::io::Error),
 }
 
-pub struct DiagramProcessor {
-    config: DiagramsConfig,
-    cache_dir: std::path::PathBuf,
-    renderer: Box<dyn DiagramRenderer>,
-    cache: HashMap<String, String>,
-}
-
-impl DiagramProcessor {
-    pub fn new(config: DiagramsConfig, cache_dir: std::path::PathBuf, renderer: Box<dyn DiagramRenderer>) -> Self {
-        Self {
-            config,
-            cache_dir,
-            renderer,
-            cache: HashMap::new(),
-        }
-    }
-
-    pub fn render(&mut self, source: &str, page_key: &str, line: usize, diagnostics: &mut DiagnosticCollector) -> Result<String, HideoError> {
-        let theme = Theme::load(&self.config.diagrams_theme_path())
-            .map_err(|e| HideoError::new(ErrorCode::E004, format!("failed to load theme: {e}"))
-                .with_page(page_key.to_string())
-                .with_line(line))?;
-
-        let cache_key = self.compute_cache_key(source, &theme);
-
-        if let Some(cached) = self.cache.get(&cache_key) {
-            return Ok(cached.clone());
-        }
-
-        let svg = self.renderer.render(source, &theme)
-            .map_err(|e| match e {
-                DiagramError::ForeignObject => {
-                    HideoError::new(ErrorCode::E004, "diagram contains <foreignObject>, set htmlLabels to false")
-                        .with_page(page_key.to_string())
-                        .with_line(line)
-                }
-                DiagramError::Timeout => {
-                    HideoError::new(ErrorCode::E004, "diagram render timeout")
-                        .with_page(page_key.to_string())
-                        .with_line(line)
-                }
-                _ => {
-                    HideoError::new(ErrorCode::E004, format!("diagram render failed: {}", e))
-                        .with_page(page_key.to_string())
-                        .with_line(line)
-                }
-            })?;
-
-        if !svg.trim_start().starts_with("<svg") && !svg.trim_start().starts_with("<?xml") {
-            return Err(HideoError::new(ErrorCode::E004, "invalid SVG output")
-                .with_page(page_key.to_string())
-                .with_line(line));
-        }
-
-        if svg.contains("<foreignObject") {
-            return Err(HideoError::new(ErrorCode::E004, "diagram contains <foreignObject>, set htmlLabels to false")
-                .with_page(page_key.to_string())
-                .with_line(line));
-        }
-
-        self.cache.insert(cache_key.clone(), svg.clone());
-        Ok(svg)
-    }
-
-    fn compute_cache_key(&self, source: &str, theme: &Theme) -> String {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(source.as_bytes());
-        hasher.update(theme.config.to_string().as_bytes());
-        hasher.update(self.renderer.name().as_bytes());
-        hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
-        let hash = hasher.finalize();
-        format!("diagrams/{}.svg", hash.to_hex().as_str()[..16].to_string())
+pub trait DiagramRenderer: Send + Sync {
+    /// Render Mermaid source to an SVG string.
+    fn render(&self, source: &str, theme: &Theme) -> Result<String, DiagramError>;
+    /// Human readable backend name for error messages, e.g. `external (mmdc)`.
+    fn name(&self) -> String;
+    /// Identity used in the cache key (name plus version information).
+    fn cache_id(&self) -> String {
+        self.name()
     }
 }
 
-pub fn create_renderer(config: &DiagramsConfig, native_diagrams: bool) -> Box<dyn DiagramRenderer> {
-    match config.backend {
-        crate::config::DiagramBackendConfig::Native => {
-            if native_diagrams {
-                Box::new(native::NativeRenderer::new())
-            } else {
-                Box::new(external::ExternalRenderer::new(config.clone()))
+/// Post-conditions for every backend (plan 7.7). Returns warnings about fonts.
+pub fn check_svg(svg: &str) -> Result<Vec<String>, DiagramError> {
+    let mut rest = svg.trim_start();
+    // Skip an XML prolog, comments and a doctype.
+    loop {
+        if rest.starts_with("<?") {
+            match rest.find("?>") {
+                Some(i) => rest = rest[i + 2..].trim_start(),
+                None => return Err(DiagramError::InvalidSvg),
+            }
+        } else if rest.starts_with("<!--") {
+            match rest.find("-->") {
+                Some(i) => rest = rest[i + 3..].trim_start(),
+                None => return Err(DiagramError::InvalidSvg),
+            }
+        } else if rest.starts_with("<!DOCTYPE") || rest.starts_with("<!doctype") {
+            match rest.find('>') {
+                Some(i) => rest = rest[i + 1..].trim_start(),
+                None => return Err(DiagramError::InvalidSvg),
+            }
+        } else {
+            break;
+        }
+    }
+    if !rest.starts_with("<svg") {
+        return Err(DiagramError::InvalidSvg);
+    }
+    if svg.contains("<foreignObject") || svg.contains("<foreignobject") {
+        return Err(DiagramError::ForeignObject);
+    }
+    Ok(font_problems(svg))
+}
+
+/// `font-family` declarations in the SVG that do not name an embedded font. Typst resolves SVG
+/// text through its own font book, so anything else silently falls back to another face.
+pub fn font_problems(svg: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    // mermaid writes `font-family: &quot;Libertinus Serif&quot;, ...` in CSS; the `;` of the
+    // entity must not end the declaration.
+    let unescaped = svg.replace("&quot;", "\"");
+    let mut rest = unescaped.as_str();
+    while let Some(i) = rest.find("font-family") {
+        rest = &rest[i + "font-family".len()..];
+        let after = rest.trim_start();
+        let value = if let Some(attr) = after.strip_prefix('=') {
+            // `font-family="A, B"`: up to the matching quote.
+            let attr = attr.trim_start();
+            match attr.chars().next() {
+                Some(q @ ('"' | '\'')) => {
+                    let inner = &attr[1..];
+                    &inner[..inner.find(q).unwrap_or(inner.len())]
+                }
+                _ => continue,
+            }
+        } else if let Some(decl) = after.strip_prefix(':') {
+            // CSS: `font-family: A, B;` up to `;`, `}` or the end of the tag.
+            let end = decl.find([';', '}', '>', '\n']).unwrap_or(decl.len());
+            &decl[..end]
+        } else {
+            continue;
+        };
+        let value = value.trim().trim_matches(['"', '\'']);
+        let families: Vec<String> = value
+            .split(',')
+            .map(|f| {
+                f.trim()
+                    .trim_matches(['"', '\'', '\\'])
+                    .replace("&quot;", "")
+                    .to_lowercase()
+            })
+            .collect();
+        if !value.is_empty()
+            && !families
+                .iter()
+                .any(|f| EMBEDDED_FAMILIES.contains(&f.as_str()))
+        {
+            let problem = value.to_string();
+            if !problems.contains(&problem) {
+                problems.push(problem);
             }
         }
-        crate::config::DiagramBackendConfig::External => {
-            Box::new(external::ExternalRenderer::new(config.clone()))
+    }
+    problems
+}
+
+/// The first word of a Mermaid source: the diagram type keyword (`graph`, `sequenceDiagram`,
+/// ...). Leading blank lines, `%%` comments and init directives, and a `---` frontmatter block
+/// are skipped.
+pub fn diagram_kind(source: &str) -> &str {
+    let mut in_frontmatter = false;
+    for line in source.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with("%%") {
+            continue;
         }
-        crate::config::DiagramBackendConfig::Off => {
-            Box::new(OffRenderer)
+        if line == "---" {
+            if !in_frontmatter {
+                in_frontmatter = true;
+                continue;
+            }
+            in_frontmatter = false;
+            continue;
         }
+        if in_frontmatter {
+            continue;
+        }
+        return line
+            .split(|c: char| c.is_whitespace() || c == ';')
+            .next()
+            .unwrap_or("");
+    }
+    ""
+}
+
+/// Diagram types the native backend renders well enough for the book (M7 gate, PLAN.md):
+/// the other types go to the fallback renderer. Sequence diagrams (grey, off-theme participant
+/// boxes) and class diagrams (members run together on one line) lost the side-by-side comparison
+/// with `mmdc` 12.2 and stay with the external renderer.
+pub const NATIVE_KINDS: &[&str] = &["graph", "flowchart", "stateDiagram", "stateDiagram-v2"];
+
+/// Routes each diagram to `primary` when its type is in `kinds`, and to `fallback` otherwise.
+pub struct RoutingRenderer {
+    pub primary: Box<dyn DiagramRenderer>,
+    pub fallback: Box<dyn DiagramRenderer>,
+    pub kinds: Vec<String>,
+}
+
+impl RoutingRenderer {
+    fn chooses_primary(&self, source: &str) -> bool {
+        let kind = diagram_kind(source);
+        self.kinds.iter().any(|k| k == kind)
     }
 }
 
-struct OffRenderer;
-
-impl DiagramRenderer for OffRenderer {
-    fn render(&self, _source: &str, _theme: &Theme) -> Result<String, DiagramError> {
-        Err(DiagramError::RenderFailed("diagrams disabled".to_string()))
+impl DiagramRenderer for RoutingRenderer {
+    fn render(&self, source: &str, theme: &Theme) -> Result<String, DiagramError> {
+        if self.chooses_primary(source) {
+            self.primary.render(source, theme)
+        } else {
+            self.fallback.render(source, theme)
+        }
     }
 
-    fn name(&self) -> &'static str {
-        "off"
+    fn name(&self) -> String {
+        format!(
+            "{} with fallback to {}",
+            self.primary.name(),
+            self.fallback.name()
+        )
+    }
+
+    fn cache_id(&self) -> String {
+        format!(
+            "routing[{}]({}|{})",
+            self.kinds.join(","),
+            self.primary.cache_id(),
+            self.fallback.cache_id()
+        )
+    }
+}
+
+/// Virtual path for a diagram source: `diagrams/<hash16>.svg`.
+pub fn diagram_vpath(source: &str) -> String {
+    format!(
+        "diagrams/{}.svg",
+        &blake3::hash(source.as_bytes()).to_hex()[..16]
+    )
+}
+
+fn disk_cache_key(source: &str, theme: &Theme, renderer: &dyn DiagramRenderer) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(source.as_bytes());
+    h.update(theme.json.as_bytes());
+    h.update(renderer.cache_id().as_bytes());
+    h.update(DIAGRAM_PIPELINE_VERSION.as_bytes());
+    h.finalize().to_hex()[..32].to_string()
+}
+
+/// SVG text plus font warnings, or the reason rendering failed.
+type CachedRender = Result<(String, Vec<String>), DiagramError>;
+
+/// Render with the disk cache `<cache_dir>/diagrams/<hash>.svg`.
+pub fn render_cached(
+    renderer: &dyn DiagramRenderer,
+    theme: &Theme,
+    cache_dir: Option<&Path>,
+    source: &str,
+) -> Result<(String, Vec<String>), DiagramError> {
+    let key = disk_cache_key(source, theme, renderer);
+    let path: Option<PathBuf> = cache_dir.map(|d| d.join("diagrams").join(format!("{key}.svg")));
+    if let Some(cached) = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok())
+        && let Ok(fonts) = check_svg(&cached)
+    {
+        return Ok((cached, fonts));
+    }
+    let svg = renderer.render(source, theme)?;
+    let fonts = check_svg(&svg)?;
+    if let Some(path) = path {
+        let _ = write_cache(&path, svg.as_bytes());
+    }
+    Ok((svg, fonts))
+}
+
+fn write_cache(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path.parent().expect("cache path has a parent");
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(bytes)?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+/// Where a diagram occurs in the Markdown.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Occurrence {
+    pub page: String,
+    pub line: usize,
+}
+
+/// Collects diagram requests while pages are emitted; rendering happens afterwards, in parallel
+/// and deduplicated by source (plan 7.2 step 8).
+#[derive(Debug, Default)]
+pub struct DiagramCollector {
+    /// vpath -> source
+    pub sources: BTreeMap<String, String>,
+    pub occurrences: BTreeMap<String, Vec<Occurrence>>,
+}
+
+impl DiagramCollector {
+    pub fn request(&mut self, page: &str, line: usize, source: &str) -> String {
+        let vpath = diagram_vpath(source);
+        self.sources
+            .entry(vpath.clone())
+            .or_insert_with(|| source.to_string());
+        self.occurrences
+            .entry(vpath.clone())
+            .or_default()
+            .push(Occurrence {
+                page: page.to_string(),
+                line,
+            });
+        vpath
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RenderedDiagrams {
+    pub svgs: BTreeMap<String, String>,
+    pub errors: Vec<HideoError>,
+    pub warnings: Vec<Warning>,
+    /// Number of diagrams answered from the disk cache or rendered, for statistics.
+    pub rendered: usize,
+}
+
+/// Render every collected diagram. Errors are attributed to each occurrence (page and line).
+pub fn render_all(
+    collector: &DiagramCollector,
+    renderer: &dyn DiagramRenderer,
+    theme: &Theme,
+    cache_dir: Option<&Path>,
+) -> RenderedDiagrams {
+    let entries: Vec<(&String, &String)> = collector.sources.iter().collect();
+    let results: Vec<(&String, CachedRender)> = entries
+        .par_iter()
+        .map(|(vpath, source)| {
+            let result = if source.trim().is_empty() {
+                Err(DiagramError::RenderFailed(
+                    "the diagram is empty".to_string(),
+                ))
+            } else {
+                render_cached(renderer, theme, cache_dir, source)
+            };
+            (*vpath, result)
+        })
+        .collect();
+
+    let mut out = RenderedDiagrams::default();
+    for (vpath, result) in results {
+        let source = &collector.sources[vpath];
+        let occurrences = &collector.occurrences[vpath];
+        match result {
+            Ok((svg, fonts)) => {
+                out.rendered += 1;
+                for font in fonts {
+                    for o in occurrences {
+                        out.warnings.push(
+                            Warning::new(
+                                WarningCode::W010,
+                                format!(
+                                    "diagram text uses font-family `{font}`, which is not embedded; set themeVariables.fontFamily to \"Libertinus Serif\""
+                                ),
+                            )
+                            .with_location(o.page.clone(), o.line),
+                        );
+                    }
+                }
+                out.svgs.insert(vpath.clone(), svg);
+            }
+            Err(e) => {
+                for o in occurrences {
+                    out.errors
+                        .push(diagram_error(&o.page, o.line, source, &renderer.name(), &e));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The error format of plan F15.
+pub fn diagram_error(
+    page: &str,
+    line: usize,
+    source: &str,
+    backend: &str,
+    reason: &DiagramError,
+) -> HideoError {
+    let first: String = source
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .chars()
+        .take(60)
+        .collect();
+    let reason = reason.to_string();
+    let reason = reason.trim().replace('\n', "\n    ");
+    HideoError::new(
+        ErrorCode::E004,
+        format!("diagram failed to render\n  first line: {first}\n  backend: {backend}\n  reason: {reason}"),
+    )
+    .with_location(page.to_string(), line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diagram_foreignobject_rejected() {
+        let svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><foreignObject>x</foreignObject></svg>";
+        assert!(matches!(check_svg(svg), Err(DiagramError::ForeignObject)));
+    }
+
+    #[test]
+    fn svg_post_conditions() {
+        assert!(check_svg("<svg></svg>").is_ok());
+        assert!(check_svg("<?xml version=\"1.0\"?>\n<!-- c -->\n<svg></svg>").is_ok());
+        assert!(check_svg("<!DOCTYPE svg><svg/>").is_ok());
+        assert!(matches!(
+            check_svg("<html></html>"),
+            Err(DiagramError::InvalidSvg)
+        ));
+        assert!(matches!(check_svg(""), Err(DiagramError::InvalidSvg)));
+        assert!(matches!(
+            check_svg("<?xml unterminated <svg>"),
+            Err(DiagramError::InvalidSvg)
+        ));
+    }
+
+    #[test]
+    fn font_family_with_quote_entities_is_read_whole() {
+        let ok = r#"<style>#m{font-family: &quot;Libertinus Serif&quot;, serif;}</style>"#;
+        assert!(font_problems(ok).is_empty(), "{:?}", font_problems(ok));
+        let bad = r#"<style>#m{font-family: &quot;Comic Sans&quot;, cursive;}</style>"#;
+        assert_eq!(font_problems(bad).len(), 1);
+    }
+
+    #[test]
+    fn font_family_must_be_embedded() {
+        let ok = r#"<svg><style>text{font-family:"Libertinus Serif",serif;}</style></svg>"#;
+        assert!(font_problems(ok).is_empty(), "{:?}", font_problems(ok));
+        let attr = r#"<svg><text font-family="DejaVu Sans Mono">x</text></svg>"#;
+        assert!(font_problems(attr).is_empty());
+        let attr_with_more =
+            r##"<text font-family="Libertinus Serif" font-size="22.4" fill="#2E1A5C">x</text>"##;
+        assert!(
+            font_problems(attr_with_more).is_empty(),
+            "{:?}",
+            font_problems(attr_with_more)
+        );
+        let bad_attr = r#"<text font-family="Arial" font-size="12">x</text>"#;
+        assert_eq!(font_problems(bad_attr), vec!["Arial".to_string()]);
+        let bad =
+            r#"<svg><style>g{font-family:"trebuchet ms",verdana,arial,sans-serif;}</style></svg>"#;
+        assert_eq!(font_problems(bad).len(), 1);
+        assert!(
+            check_svg(bad).is_ok(),
+            "font problems are warnings, not errors"
+        );
+        assert_eq!(check_svg(bad).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn diagram_kind_skips_comments_init_and_frontmatter() {
+        assert_eq!(diagram_kind("graph TD; A-->B"), "graph");
+        assert_eq!(
+            diagram_kind(
+                "
+  flowchart LR
+ A-->B"
+            ),
+            "flowchart"
+        );
+        assert_eq!(
+            diagram_kind(
+                "%% a comment
+%%{init: {}}%%
+sequenceDiagram
+ A->>B: x"
+            ),
+            "sequenceDiagram"
+        );
+        assert_eq!(
+            diagram_kind(
+                "---
+title: T
+---
+classDiagram
+ class A"
+            ),
+            "classDiagram"
+        );
+        assert_eq!(
+            diagram_kind(
+                "stateDiagram-v2
+ [*] --> A"
+            ),
+            "stateDiagram-v2"
+        );
+        assert_eq!(diagram_kind("pie title Pets"), "pie");
+        assert_eq!(diagram_kind(""), "");
+    }
+
+    #[test]
+    fn routing_sends_types_to_the_right_backend() {
+        struct Named(&'static str);
+        impl DiagramRenderer for Named {
+            fn render(&self, _s: &str, _t: &Theme) -> Result<String, DiagramError> {
+                Ok(format!("<svg>{}</svg>", self.0))
+            }
+            fn name(&self) -> String {
+                self.0.to_string()
+            }
+        }
+        let r = RoutingRenderer {
+            primary: Box::new(Named("native")),
+            fallback: Box::new(Named("external")),
+            kinds: NATIVE_KINDS.iter().map(|k| k.to_string()).collect(),
+        };
+        let t = Theme::embedded();
+        assert_eq!(
+            r.render("graph TD; A-->B", &t).unwrap(),
+            "<svg>native</svg>"
+        );
+        assert_eq!(
+            r.render(
+                "stateDiagram-v2
+ [*] --> A",
+                &t
+            )
+            .unwrap(),
+            "<svg>native</svg>"
+        );
+        assert_eq!(
+            r.render(
+                "sequenceDiagram
+ A->>B: x",
+                &t
+            )
+            .unwrap(),
+            "<svg>external</svg>"
+        );
+        assert_eq!(
+            r.render(
+                "erDiagram
+ A ||--o{ B : x",
+                &t
+            )
+            .unwrap(),
+            "<svg>external</svg>"
+        );
+        assert_eq!(
+            r.render(
+                "pie
+ \"a\": 1",
+                &t
+            )
+            .unwrap(),
+            "<svg>external</svg>"
+        );
+        assert!(r.name().contains("native") && r.name().contains("external"));
+    }
+
+    #[test]
+    fn collector_deduplicates_by_source() {
+        let mut c = DiagramCollector::default();
+        let a = c.request("p1.md", 3, "graph TD; A-->B");
+        let b = c.request("p2.md", 9, "graph TD; A-->B");
+        let d = c.request("p2.md", 20, "graph LR; X-->Y");
+        assert_eq!(a, b);
+        assert_ne!(a, d);
+        assert_eq!(c.sources.len(), 2);
+        assert_eq!(c.occurrences[&a].len(), 2);
+    }
+
+    struct Fake {
+        calls: std::sync::atomic::AtomicUsize,
+        result: fn(&str) -> Result<String, DiagramError>,
+    }
+
+    impl DiagramRenderer for Fake {
+        fn render(&self, source: &str, _theme: &Theme) -> Result<String, DiagramError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            (self.result)(source)
+        }
+        fn name(&self) -> String {
+            "fake".into()
+        }
+    }
+
+    fn fake(result: fn(&str) -> Result<String, DiagramError>) -> Fake {
+        Fake {
+            calls: Default::default(),
+            result,
+        }
+    }
+
+    #[test]
+    fn test_diagram_cache_hit_skips_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let theme = Theme::embedded();
+        let r = fake(|_| Ok("<svg>one</svg>".into()));
+        let (svg, _) = render_cached(&r, &theme, Some(dir.path()), "graph TD; A-->B").unwrap();
+        assert_eq!(svg, "<svg>one</svg>");
+        let (again, _) = render_cached(&r, &theme, Some(dir.path()), "graph TD; A-->B").unwrap();
+        assert_eq!(again, "<svg>one</svg>");
+        assert_eq!(r.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // Different source or theme: backend is called again.
+        render_cached(&r, &theme, Some(dir.path()), "graph TD; X-->Y").unwrap();
+        let other_theme = Theme { json: "{}".into() };
+        render_cached(&r, &other_theme, Some(dir.path()), "graph TD; A-->B").unwrap();
+        assert_eq!(r.calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_diagram_failure_names_page_and_line() {
+        let mut c = DiagramCollector::default();
+        let source = "graph TD; A-->B and a very long first line that goes past the sixty character limit for sure";
+        c.request("required/01_intro.md", 47, source);
+        let r = fake(|_| Err(DiagramError::RenderFailed("boom\nsecond line".into())));
+        let out = render_all(&c, &r, &Theme::embedded(), None);
+        assert_eq!(out.errors.len(), 1);
+        let e = &out.errors[0];
+        assert_eq!(e.code, ErrorCode::E004);
+        assert_eq!(e.page.as_deref(), Some("required/01_intro.md"));
+        assert_eq!(e.line, Some(47));
+        assert!(
+            e.message
+                .starts_with("diagram failed to render\n  first line: graph TD; A-->B")
+        );
+        let first_line = e
+            .message
+            .lines()
+            .nth(1)
+            .unwrap()
+            .trim_start_matches("  first line: ");
+        assert_eq!(
+            first_line.chars().count(),
+            60,
+            "first line is truncated to 60 characters"
+        );
+        assert!(e.message.contains("  backend: fake"));
+        assert!(e.message.contains("  reason: boom"));
+        assert!(out.svgs.is_empty());
+    }
+
+    #[test]
+    fn empty_diagram_is_an_error() {
+        let mut c = DiagramCollector::default();
+        c.request("p.md", 1, "  \n");
+        let r = fake(|_| Ok("<svg/>".into()));
+        let out = render_all(&c, &r, &Theme::embedded(), None);
+        assert_eq!(out.errors.len(), 1);
+        assert_eq!(r.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn render_all_reports_every_occurrence_and_keeps_order() {
+        let mut c = DiagramCollector::default();
+        c.request("a.md", 1, "graph A");
+        c.request("b.md", 2, "graph A");
+        c.request("a.md", 5, "graph B");
+        let r = fake(|s| Ok(format!("<svg>{s}</svg>")));
+        let out = render_all(&c, &r, &Theme::embedded(), None);
+        assert!(out.errors.is_empty());
+        assert_eq!(out.svgs.len(), 2);
+        assert_eq!(r.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let bad = fake(|_| Err(DiagramError::Timeout(30)));
+        let out = render_all(&c, &bad, &Theme::embedded(), None);
+        assert_eq!(out.errors.len(), 3, "one error per occurrence");
+    }
+
+    #[test]
+    fn foreign_object_from_backend_fails_render() {
+        let mut c = DiagramCollector::default();
+        c.request("p.md", 1, "graph A");
+        let r = fake(|_| Ok("<svg><foreignObject/></svg>".into()));
+        let out = render_all(&c, &r, &Theme::embedded(), None);
+        assert_eq!(out.errors.len(), 1);
+        assert!(out.errors[0].message.contains("htmlLabels"));
+    }
+
+    #[test]
+    fn embedded_theme_is_valid_json_with_font_and_no_html_labels() {
+        let v: serde_json::Value = serde_json::from_str(&Theme::embedded().json).unwrap();
+        assert_eq!(v["themeVariables"]["fontFamily"], "Libertinus Serif");
+        // mermaid 11+ (mmdc 12) only honours the top-level key; older versions the nested one.
+        assert_eq!(v["fontFamily"], "Libertinus Serif");
+        // Without a seed, class and ER diagrams get random outline jitter on every run.
+        assert_eq!(v["handDrawnSeed"], 1);
+        assert_eq!(v["htmlLabels"], false);
+        assert_eq!(v["flowchart"]["htmlLabels"], false);
     }
 }

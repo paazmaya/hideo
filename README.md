@@ -1,10 +1,153 @@
 # Hideo (秀雄)
 
-> Markdown to pdf converter with many opinions baked in
-
-![Mrs Hideo Sonobe](./logo.png)
+> Markdown to PDF book converter with many opinions baked in
 
 [![Ubuntu Build Status](https://paazmaya.semaphoreci.com/badges/hideo/branches/main.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
+
+`hideo` turns a folder of Markdown pages and images into one PDF book per _tier_
+(a tier is a folder such as `required`, `additional`, `bonus`). It is a single binary: the
+[Typst](https://typst.app) compiler and PDF exporter are embedded, so there is nothing else
+to install. The only optional external dependency is a Mermaid renderer for diagrams.
+
+What you get: a full-bleed cover, a contents page with page numbers, one hero image per
+page, working internal links, styled tables whose header row repeats across pages,
+[Mermaid](https://mermaid.js.org) diagrams, and an **accessible, tagged PDF that is validated
+against PDF/UA-1** on every build. Two builds of the same sources are byte-identical.
+
+The design is specified in [PLAN.md](PLAN.md).
+
+## Install
+
+```sh
+cargo install --path .                      # Rust 1.92 or newer
+cargo install --path . --features native-diagrams   # also render some diagrams in-process
+```
+
+## Quick start
+
+```sh
+hideo check  --input book            # validate, write nothing
+hideo list   --input book            # pages in PDF order
+hideo build  --input book --output pdf-output
+```
+
+`book/` contains a `hideo.toml` (see below), one folder per tier, and the images:
+
+```text
+book/
+  hideo.toml
+  images/hero.png
+  required/
+    01_intro.md
+    02_setup/01_install.md
+  additional/
+    01_more.md
+```
+
+Every page starts with a small frontmatter block:
+
+```markdown
+---
+title: "Introduction" # required, shown in the contents
+hero: "images/hero.png" # required; next to the page first, then relative to the book folder
+subtitle: "Getting started" # optional
+author: "A. Author" # optional
+lang: "en" # optional: language of this page when it differs from book.lang
+hero_alt: "A mountain at dawn" # optional: makes the hero real content with alt text
+---
+
+# Welcome
+
+Body in the Markdown profile below.
+```
+
+Pages are ordered by file path with a case-insensitive natural sort (`2_a.md` before
+`10_a.md`). Files and folders whose names start with `_` or `.` are ignored.
+
+## Commands
+
+| Command                 | What it does                                                                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hideo build [TIER...]` | Build one PDF per tier into `--output` (default `pdf-output`).                                                                                                                   |
+| `hideo check [TIER...]` | Validate everything that does not need Typst: frontmatter, links, headings, tables, images, diagram sources. `--format json` prints `{"errors":[…],"warnings":[…],"stats":{…}}`. |
+| `hideo list [TIER...]`  | Print the pages in PDF order (`--format json` available).                                                                                                                        |
+
+Useful `build` flags: `--diagrams native|external|off`, `--keep-typst DIR` (write the generated
+Typst for debugging), `--deny-unresolved` (exit 1 if an internal link does not resolve),
+`--jobs N`, `-q` (no warnings), `-v`.
+
+**Exit codes:** `0` success, `1` content or build error (a Markdown mistake names the page and
+line), `2` usage or configuration error.
+
+**Reproducible builds.** The PDF timestamp comes from `SOURCE_DATE_EPOCH` (seconds since the
+epoch, UTC), or 2000-01-01T00:00:00Z when it is unset. An invalid value is an error.
+
+## Configuration (`hideo.toml`)
+
+See the annotated [hideo.toml](hideo.toml). Unknown keys are an error. Paths are relative to the
+config file, except `build.cache_dir`, which is relative to the output folder. Required keys:
+`tiers`, `book.lang` (the document language, a BCP 47 tag such as `fi` or `en-GB`: it is never
+silently English) and `cover.title`.
+
+## Markdown profile
+
+Only a narrow, strict profile is supported; anything else is an error naming the page and line.
+
+Supported: paragraphs, emphasis, strong, links, headings (with optional `{#custom-id}`),
+bullet and numbered lists (nested), block quotes, fenced and indented code, thematic breaks,
+tables, images (`![alt](path)`), Mermaid diagrams, and _lead-in_ paragraphs
+(`**Note.** text`).
+
+Not supported (errors): HTML blocks, footnotes, strikethrough, task lists, definition lists,
+superscript and subscript. Inline HTML is dropped with a warning. `$` is always a literal dollar.
+
+Links: relative links between pages become PDF links; `https://` and `mailto:` links are kept
+(web links get a small arrow). Links into another tier cannot be followed in a separate PDF and
+are reported as _outside this PDF_.
+
+## Diagrams
+
+A ` ```mermaid ` code block becomes an image. Give it alt text after the fence language:
+` ```mermaid "How the pieces connect" `, or use `accTitle:` / `accDescr:` lines. Diagrams are
+rendered by a command that follows the `mmdc` (mermaid-cli) command line, configured under
+`[diagrams]`; `mmdr` works too. Results are cached, so only changed diagrams are rendered
+again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
+
+Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state
+diagrams in-process (no Node or Chromium) and hands the other types (sequence, class, ER, pie,
+mindmap, gantt, ...) to the external command.
+
+## Accessibility
+
+Every PDF is a tagged PDF and is validated against **PDF/UA-1** by default
+(`accessibility.pdf_ua = true`; a violation fails the build and names the page and line).
+Table header rows are real header cells with column scope, decorative images (heroes, the
+cover, the contents image, the dotted leaders) are marked as artifacts, every other image has
+alt text, the language is set, and headings produce the PDF outline. `check` also warns about
+skipped heading levels, empty table headers, non-descriptive link text and diagrams without alt text.
+
+Typst's validation is structural: it does not judge whether alt text is useful, whether the
+reading order makes sense, or colour contrast (the palette is tested separately). It is not a
+certification; see the open items in PLAN.md (veraPDF, a screen reader pass).
+
+Characters that the embedded fonts do not cover (for example Japanese) cannot be displayed;
+the build reports them as errors, and `check` warns first.
+
+## Fonts
+
+Only the fonts embedded in the binary are used (Libertinus Serif, New Computer Modern,
+DejaVu Sans Mono), so output never depends on the machine.
+
+## Development
+
+```sh
+cargo test                       # unit, property and end-to-end tests
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all --check
+cargo test --features native-diagrams
+```
+
+CI: Semaphore (Linux, macOS) and AppVeyor (Windows); see PLAN.md section 8.6.
 
 ## Background for the project name
 

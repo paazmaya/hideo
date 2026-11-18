@@ -1,0 +1,49 @@
+---
+source: src/markdown/emit.rs
+expression: e.markup.text
+---
+#heading(level: 1)[Title] <t-p--top>
+
+A paragraph with #emph[emphasis], #strong[strong], #raw("code"), a #ext-link("https://example.com/a")[web link], a #link("mailto:a@b.c")[mail link], an #link(<t-p--top>)[internal link] and a hard#linebreak()break. Special characters: \# \$ \@ \* \_ \< \> \[ \] \~ \\ and 5% of 2020\-2021, COVID\-19.
+
+#lead[Note.] A lead-in paragraph.
+
+#heading(level: 2)[Lists] <t-p--lists>
+
+- bullet
+
+  - nested bullet
+
+    1. numbered in nested
+
+3. starts at three
+4. four
+
+#quote(block: true)[
+A quote with a #link(<t-p--top>)[link].
+
+- and a list
+]
+
+#hr()
+
+#raw("fn main() { println!(\"hi\"); }", block: true, lang: "rust")
+
+#raw("indented code", block: true)
+
+#hideo-image("images/figure.png", alt: "A figure")
+
+#[
+#set text(size: 8.5pt)
+#table(
+  columns: (0.7439fr, 0.1367fr, 0.1194fr),
+  align: (left, center, right,),
+  table.header([Left], [Centre], [Right]),
+  [a], [#strong[b]], [#raw("c")],
+  [long https:/​/​example.​com/​a/​very/​long/​path], [x], [y],
+)
+]
+
+#hideo-diagram("diagrams/test.svg", alt: "A diagram")
+
+Inline html is dropped with a warning.

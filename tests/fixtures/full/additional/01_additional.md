@@ -1,23 +1,14 @@
 ---
-title: "Additional Content"
-hero: "hero7.png"
+title: "Additional Material"
+hero: "images/hero2.png"
 ---
 
-# Additional Tier
+# Additional Material
 
-This is the additional tier.
+This page is in the additional tier. It links to [a page in the required tier](../required/01_intro.md),
+which is another PDF and therefore reported as outside this PDF.
 
-## Page 1
+## Extra
 
-Content for additional tier page 1.
-
----
-
-# Additional Page 2
-
----
-title: "Additional Page 2"
-hero: "hero8.png"
----
-
-More content here.
+- one
+- two

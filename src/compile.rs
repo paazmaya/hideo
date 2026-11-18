@@ -1,182 +1,377 @@
-use std::collections::HashMap;
-use std::fs;
+//! Compile, export and diagnostic mapping (plan 7.9).
+
+use std::collections::BTreeMap;
 use std::path::Path;
-use tempfile::NamedTempFile;
-use typst::diag::Warned;
-use typst::foundations::{Datetime, Smart};
+
+use chrono::{Datelike, Timelike};
 use typst::World;
 use typst::WorldExt;
+use typst::diag::{Severity, SourceDiagnostic, Warned};
+use typst::foundations::{Datetime, Smart};
 use typst_layout::PagedDocument;
-use typst_pdf::{PdfOptions, PdfStandards, PdfStandard, Timestamp};
+use typst_pdf::{PdfOptions, PdfStandard, PdfStandards, Timestamp};
+
+use crate::error::{ConfigError, ErrorCode, HideoError, Warning, WarningCode};
 use crate::world::HideoWorld;
-use crate::config::Config;
-use crate::error::{DiagnosticCollector, HideoError, ErrorCode, Warning, WarningCode};
-use crate::markdown::emit::LineMap;
 
-pub fn compile_and_export(
-    world: HideoWorld,
-    line_maps: HashMap<String, LineMap>,
-    config: &Config,
-    output_path: &Path,
-) -> Result<(), Vec<HideoError>> {
-    let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
+/// 2000-01-01T00:00:00Z, used when `SOURCE_DATE_EPOCH` is unset (F19).
+pub const DEFAULT_EPOCH: i64 = 946_684_800;
 
-    let document = output.map_err(|errs| {
-        map_diagnostics(&world, &line_maps, &errs)
-    })?;
+/// Maps lines of one generated `.typ` file back to Markdown.
+#[derive(Debug, Clone, Default)]
+pub struct SourceMap {
+    /// Markdown file name used in diagnostics (e.g. `required/01_intro.md`).
+    pub page: String,
+    /// Entry `i` is the Markdown file line that produced generated line `i` (0-based index).
+    pub lines: Vec<u32>,
+}
 
-    let standards = if config.accessibility.pdf_ua {
-        match PdfStandards::new(&[PdfStandard::Ua_1]) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(vec![HideoError::new(ErrorCode::E006, format!("PDF/UA-1 validation setup failed: {:?}", e))]);
-            }
-        }
+/// Source maps keyed by virtual path (`pages/001.typ`).
+pub type SourceMaps = BTreeMap<String, SourceMap>;
+
+#[derive(Debug, Clone)]
+pub struct PdfSettings {
+    pub tagged: bool,
+    pub pdf_ua: bool,
+    pub timestamp: Datetime,
+    pub warnings_as_errors: bool,
+}
+
+#[derive(Debug)]
+pub struct CompiledPdf {
+    pub bytes: Vec<u8>,
+    pub pages: usize,
+    pub warnings: Vec<Warning>,
+}
+
+/// `SOURCE_DATE_EPOCH` as a Typst datetime. An invalid value is a usage error (exit 2).
+pub fn source_date(value: Option<&str>) -> Result<Datetime, ConfigError> {
+    let epoch = match value {
+        None => DEFAULT_EPOCH,
+        Some(v) => v.trim().parse::<i64>().map_err(|_| {
+            ConfigError(format!(
+                "SOURCE_DATE_EPOCH must be an integer number of seconds, got `{v}`"
+            ))
+        })?,
+    };
+    datetime_from_epoch(epoch)
+        .ok_or_else(|| ConfigError(format!("SOURCE_DATE_EPOCH `{epoch}` is out of range")))
+}
+
+pub fn datetime_from_epoch(epoch: i64) -> Option<Datetime> {
+    let dt = chrono::DateTime::from_timestamp(epoch, 0)?;
+    Datetime::from_ymd_hms(
+        dt.year(),
+        dt.month() as u8,
+        dt.day() as u8,
+        dt.hour() as u8,
+        dt.minute() as u8,
+        dt.second() as u8,
+    )
+}
+
+/// Compile to a paged document without exporting. Used by tests and by `compile_pdf`.
+pub fn compile_document(world: &HideoWorld) -> Warned<typst::diag::SourceResult<PagedDocument>> {
+    typst::compile::<PagedDocument>(world)
+}
+
+/// Compile and export a PDF. Nothing is written to disk.
+pub fn compile_pdf(
+    world: &HideoWorld,
+    maps: &SourceMaps,
+    settings: &PdfSettings,
+) -> Result<CompiledPdf, Vec<HideoError>> {
+    let Warned { output, warnings } = compile_document(world);
+    let mut mapped_warnings: Vec<Warning> = warnings
+        .iter()
+        .map(|w| map_warning(world, maps, w))
+        .collect();
+
+    let document = output.map_err(|errs| map_errors(world, maps, &errs, ErrorCode::E005))?;
+
+    let standards = if settings.pdf_ua {
+        PdfStandards::new(&[PdfStandard::Ua_1]).map_err(|e| {
+            vec![HideoError::new(
+                ErrorCode::E006,
+                format!("cannot enable PDF/UA-1: {e:?}"),
+            )]
+        })?
     } else {
         PdfStandards::default()
     };
-
     let options = PdfOptions {
-        timestamp: Some(Timestamp::new_utc(config.build_timestamp())),
+        timestamp: Some(Timestamp::new_utc(settings.timestamp)),
         creator: Smart::Custom(Some(format!("hideo {}", env!("CARGO_PKG_VERSION")))),
         standards,
-        tagged: config.accessibility.tagged,
+        tagged: settings.tagged,
         ..Default::default()
     };
-
     let bytes = typst_pdf::pdf(&document, &options)
-        .map_err(|errs| {
-            map_diagnostics(&world, &line_maps, &errs)
-        })?;
+        .map_err(|errs| map_errors(world, maps, &errs, ErrorCode::E006))?;
 
-    write_atomically(output_path, &bytes)?;
+    mapped_warnings
+        .sort_by(|a, b| (&a.page, a.line, &a.message).cmp(&(&b.page, b.line, &b.message)));
+    mapped_warnings.dedup_by(|a, b| a.page == b.page && a.line == b.line && a.message == b.message);
 
-    for warning in warnings {
-        let mapped = map_typst_warning(&world, &line_maps, &warning);
-        if let Some(w) = mapped {
-            if config.diagnostics.warnings_as_errors {
-                return Err(vec![HideoError::new(ErrorCode::E005, w.message)
-                    .with_page(w.page.unwrap_or_default())
-                    .with_line(w.line.unwrap_or(0))]);
+    if settings.warnings_as_errors && !mapped_warnings.is_empty() {
+        return Err(mapped_warnings
+            .iter()
+            .map(|w| {
+                let mut e = HideoError::new(ErrorCode::E005, w.message.clone());
+                e.page = w.page.clone();
+                e.line = w.line;
+                e
+            })
+            .collect());
+    }
+
+    Ok(CompiledPdf {
+        bytes,
+        pages: document.pages().len(),
+        warnings: mapped_warnings,
+    })
+}
+
+/// Write `bytes` to `path` via a temporary file in the same directory, then rename, so an error
+/// never leaves a half-written PDF.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(bytes)?;
+    tmp.flush()?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+struct Location {
+    page: Option<String>,
+    line: Option<usize>,
+    /// The diagnostic is in generated code that is not a page (main.typ, the template).
+    internal: bool,
+}
+
+fn locate(world: &HideoWorld, maps: &SourceMaps, d: &SourceDiagnostic) -> Location {
+    let Some(id) = d.span.id() else {
+        return Location {
+            page: None,
+            line: None,
+            internal: false,
+        };
+    };
+    let vpath = id.vpath().get_without_slash().to_string();
+    let line_index = world.range(d.span).and_then(|range| {
+        world
+            .source(id)
+            .ok()
+            .and_then(|src| src.lines().byte_to_line(range.start))
+    });
+    match maps.get(&vpath) {
+        Some(map) => Location {
+            page: Some(map.page.clone()),
+            line: line_index
+                .and_then(|i| map.lines.get(i))
+                .map(|l| *l as usize),
+            internal: false,
+        },
+        None => Location {
+            page: Some(vpath),
+            line: line_index.map(|i| i + 1),
+            internal: true,
+        },
+    }
+}
+
+fn map_errors(
+    world: &HideoWorld,
+    maps: &SourceMaps,
+    errs: &[SourceDiagnostic],
+    code: ErrorCode,
+) -> Vec<HideoError> {
+    errs.iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| {
+            let loc = locate(world, maps, d);
+            let mut message = d.message.to_string();
+            for hint in &d.hints {
+                message.push_str(&format!("\n  hint: {}", hint.v));
+            }
+            if loc.internal {
+                message.push_str("\n  this is a hideo bug, please report it");
+            }
+            let mut e = HideoError::new(code, message);
+            e.page = loc.page;
+            e.line = loc.line;
+            e
+        })
+        .collect()
+}
+
+fn map_warning(world: &HideoWorld, maps: &SourceMaps, d: &SourceDiagnostic) -> Warning {
+    let loc = locate(world, maps, d);
+    let mut w = Warning::new(WarningCode::W010, format!("typst: {}", d.message));
+    w.page = loc.page;
+    w.line = loc.line;
+    w
+}
+
+/// Text of every page in reading order, for tests that compare extracted text.
+pub fn extract_text(document: &PagedDocument) -> Vec<String> {
+    use typst::layout::{Frame, FrameItem};
+    fn walk(frame: &Frame, out: &mut String) {
+        for (_, item) in frame.items() {
+            match item {
+                FrameItem::Text(t) => out.push_str(&t.text),
+                FrameItem::Group(g) => walk(&g.frame, out),
+                _ => {}
             }
         }
     }
-
-    Ok(())
+    document
+        .pages()
+        .iter()
+        .map(|p| {
+            let mut s = String::new();
+            walk(&p.frame, &mut s);
+            s
+        })
+        .collect()
 }
 
-fn write_atomically(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    let temp = NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))?;
-    fs::write(temp.path(), bytes)?;
-    temp.persist(path)?;
-    Ok(())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn map_diagnostics(
-    world: &HideoWorld,
-    line_maps: &HashMap<String, LineMap>,
-    errs: &typst::diag::EcoVec<typst::diag::SourceDiagnostic>,
-) -> Vec<HideoError> {
-    let mut errors = Vec::new();
+    #[test]
+    fn test_timestamp_from_source_date_epoch() {
+        let d = source_date(Some("1700000000")).unwrap();
+        assert_eq!(d, Datetime::from_ymd_hms(2023, 11, 14, 22, 13, 20).unwrap());
+        let default = source_date(None).unwrap();
+        assert_eq!(
+            default,
+            Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap()
+        );
+    }
 
-    for err in errs {
-        let span = err.span;
-        let file_id = span.id();
-
-        if let Ok(source) = world.source(file_id) {
-            let range = world.range(span).unwrap_or(span.range());
-            let byte_start = range.start;
-            let line = source.lines().byte_to_line(byte_start).unwrap_or(0);
-
-            let vpath = file_id.vpath().get_without_slash();
-            let page_key = if vpath.starts_with("pages/") {
-                vpath.strip_prefix("pages/").unwrap().strip_suffix(".typ").unwrap_or(vpath)
-            } else if vpath == "main.typ" {
-                "main"
-            } else {
-                vpath
-            };
-
-            let line_map = line_maps.get(page_key);
-            let markdown_line = line_map
-                .and_then(|lm| lm.entries.get(line))
-                .copied()
-                .unwrap_or(line as u32 + 1) as usize;
-
-            let code = if err.message.to_string().contains("pdf/ua-1") {
-                ErrorCode::E006
-            } else {
-                ErrorCode::E005
-            };
-
-            errors.push(HideoError::new(code, err.message.to_string())
-                .with_page(page_key.to_string())
-                .with_line(markdown_line));
+    #[test]
+    fn test_invalid_source_date_epoch_exits_2() {
+        for bad in ["", "abc", "1.5", "99999999999999999999"] {
+            assert!(source_date(Some(bad)).is_err(), "{bad}");
         }
     }
 
-    errors
-}
-
-fn map_typst_warning(
-    world: &HideoWorld,
-    line_maps: &HashMap<String, LineMap>,
-    warning: &typst::diag::Warning,
-) -> Option<Warning> {
-    let span = warning.span;
-    let file_id = span.id();
-
-    if let Ok(source) = world.source(file_id) {
-        let range = world.range(span).unwrap_or(span.range());
-        let byte_start = range.start;
-        let line = source.lines().byte_to_line(byte_start).unwrap_or(0);
-
-        let vpath = file_id.vpath().get_without_slash();
-        let page_key = if vpath.starts_with("pages/") {
-            vpath.strip_prefix("pages/").unwrap().strip_suffix(".typ").unwrap_or(vpath)
-        } else if vpath == "main.typ" {
-            "main"
-        } else {
-            vpath
-        };
-
-        let line_map = line_maps.get(page_key);
-        let markdown_line = line_map
-            .and_then(|lm| lm.entries.get(line))
-            .copied()
-            .unwrap_or(line as u32 + 1) as usize;
-
-        let code = if warning.message.to_string().contains("foreignObject") {
-            WarningCode::W004
-        } else {
-            WarningCode::W001
-        };
-
-        Some(Warning::new(code, warning.message.to_string())
-            .with_page(page_key.to_string())
-            .with_line(markdown_line))
-    } else {
-        None
+    fn world(src: &str) -> HideoWorld {
+        HideoWorld::from_source(src, Datetime::from_ymd(2000, 1, 1).unwrap())
     }
-}
 
-impl Config {
-    pub fn build_timestamp(&self) -> Datetime {
-        let epoch = std::env::var("SOURCE_DATE_EPOCH")
-            .ok()
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(946684800);
+    fn settings(pdf_ua: bool) -> PdfSettings {
+        PdfSettings {
+            tagged: true,
+            pdf_ua,
+            timestamp: Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap(),
+            warnings_as_errors: false,
+        }
+    }
 
-        let dt = chrono::DateTime::from_timestamp(epoch, 0)
-            .unwrap_or_else(|| chrono::DateTime::from_timestamp(946684800, 0).unwrap());
+    /// The day-1 vertical slice (plan Appendix E): hard-coded Typst -> PDF -> lopdf reads it.
+    #[test]
+    fn vertical_slice_compiles_and_lopdf_reads_one_page() {
+        let w = world("#set document(title: \"T\")\n#set text(lang: \"en\")\nHello *world*.");
+        let pdf = compile_pdf(&w, &SourceMaps::new(), &settings(true)).unwrap();
+        assert_eq!(pdf.pages, 1);
+        let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();
+        assert_eq!(doc.get_pages().len(), 1);
+        assert!(pdf.bytes.starts_with(b"%PDF-"));
+    }
 
-        Datetime::from_ymd_hms(
-            dt.year() as i64,
-            dt.month() as u8,
-            dt.day() as u8,
-            dt.hour() as u8,
-            dt.minute() as u8,
-            dt.second() as u8,
-        ).unwrap()
+    #[test]
+    fn pdf_ua_missing_title_is_an_error_e006() {
+        let w = world("#set text(lang: \"en\")\nNo title.");
+        let errors = compile_pdf(&w, &SourceMaps::new(), &settings(true)).unwrap_err();
+        assert!(
+            errors.iter().all(|e| e.code == ErrorCode::E006),
+            "{errors:?}"
+        );
+        // The same document passes with validation off.
+        assert!(compile_pdf(&w, &SourceMaps::new(), &settings(false)).is_ok());
+    }
+
+    #[test]
+    fn typst_error_in_mapped_file_names_page_and_markdown_line() {
+        let mut files = BTreeMap::new();
+        files.insert(
+            "main.typ".to_string(),
+            b"#include \"pages/001.typ\"".to_vec(),
+        );
+        files.insert(
+            "pages/001.typ".to_string(),
+            b"fine\n\n#undefined-function()\n".to_vec(),
+        );
+        let w = HideoWorld::new(&files, Datetime::from_ymd(2000, 1, 1).unwrap()).unwrap();
+        let mut maps = SourceMaps::new();
+        maps.insert(
+            "pages/001.typ".to_string(),
+            SourceMap {
+                page: "required/01_intro.md".into(),
+                lines: vec![10, 11, 42],
+            },
+        );
+        let errors = compile_pdf(&w, &maps, &settings(false)).unwrap_err();
+        assert_eq!(errors[0].code, ErrorCode::E005);
+        assert_eq!(errors[0].page.as_deref(), Some("required/01_intro.md"));
+        assert_eq!(errors[0].line, Some(42));
+    }
+
+    #[test]
+    fn internal_errors_say_so() {
+        let w = world("#undefined-function()");
+        let errors = compile_pdf(&w, &SourceMaps::new(), &settings(false)).unwrap_err();
+        assert!(errors[0].message.contains("hideo bug"));
+        assert_eq!(errors[0].page.as_deref(), Some("main.typ"));
+    }
+
+    #[test]
+    fn no_partial_pdf_on_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("out.pdf");
+        let w = world("#undefined()");
+        if let Ok(pdf) = compile_pdf(&w, &SourceMaps::new(), &settings(false)) {
+            write_atomically(&target, &pdf.bytes).unwrap();
+        }
+        assert!(!target.exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn write_atomically_replaces_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("sub/out.pdf");
+        write_atomically(&target, b"one").unwrap();
+        write_atomically(&target, b"two").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"two");
+        assert_eq!(
+            std::fs::read_dir(target.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn reproducible_in_process() {
+        let src = "#set document(title: \"T\")\n#set text(lang: \"en\")\nSame bytes.";
+        let a = compile_pdf(&world(src), &SourceMaps::new(), &settings(true)).unwrap();
+        let b = compile_pdf(&world(src), &SourceMaps::new(), &settings(true)).unwrap();
+        assert_eq!(a.bytes, b.bytes);
+    }
+
+    #[test]
+    fn extract_text_reads_frames() {
+        let w = world("Hello there");
+        let Warned { output, .. } = compile_document(&w);
+        let text = extract_text(&output.unwrap());
+        assert_eq!(text, vec!["Hello there".to_string()]);
     }
 }
