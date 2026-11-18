@@ -76,10 +76,10 @@ pub fn emit_page(
     page: &Page,
     links: &mut LinkMap,
     assets: &mut dyn AssetSink,
-    text_width_pt: f64,
+    text_area_pt: (f64, f64),
 ) -> Emitted {
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut emitter = Emitter::new(page, links, assets, text_width_pt);
+        let mut emitter = Emitter::new(page, links, assets, text_area_pt);
         let lines = emitter.blocks(None);
         (lines, emitter.diag)
     }));
@@ -121,7 +121,8 @@ struct Emitter<'a, 'l> {
     diag: DiagnosticCollector,
     heading_index: usize,
     last_heading_level: Option<u8>,
-    text_width_pt: f64,
+    /// Text area (width, height) in points.
+    text_area_pt: (f64, f64),
     /// Inside a table cell: break long tokens and collect plain text for measuring.
     in_table: bool,
     plain: String,
@@ -154,7 +155,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
         page: &'a Page,
         links: &'l mut LinkMap,
         assets: &'l mut dyn AssetSink,
-        text_width_pt: f64,
+        text_area_pt: (f64, f64),
     ) -> Self {
         let events = Parser::new_ext(&page.body, parser_options())
             .into_offset_iter()
@@ -168,7 +169,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
             diag: DiagnosticCollector::default(),
             heading_index: 0,
             last_heading_level: None,
-            text_width_pt,
+            text_area_pt,
             in_table: false,
             plain: String::new(),
         }
@@ -627,7 +628,9 @@ impl<'a, 'l> Emitter<'a, 'l> {
             header,
             rows,
         };
-        let layout = tables::plan(&data, self.text_width_pt);
+        let (width, height) = self.text_area_pt;
+        let mut layout = tables::plan(&data, width);
+        tables::mark_tall_rows(&mut layout, &data, width, height);
         if layout.overflow {
             self.warn(
                 WarningCode::W004,
@@ -941,7 +944,7 @@ mod tests {
     fn emit(body: &str) -> Emitted {
         let p = page(body);
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        emit_page(&p, &mut links, &mut NoAssets, 453.5)
+        emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0))
     }
 
     fn md(body: &str) -> String {
@@ -1075,7 +1078,7 @@ mod tests {
         // Unresolved: plain text, reported by the link map.
         let p = page("[gone](nope.md)");
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        let e = emit_page(&p, &mut links, &mut NoAssets, 453.5);
+        let e = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0));
         assert_eq!(e.markup.text, "gone");
         assert_eq!(links.unresolved.len(), 1);
         assert_eq!(links.unresolved[0].line, 1);
@@ -1313,7 +1316,7 @@ Inline <b>html</b> is dropped with a warning.
 ",
         );
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        let result = emit_page(&p, &mut links, &mut Panicking, 453.5);
+        let result = emit_page(&p, &mut links, &mut Panicking, (453.5, 700.0));
         assert_eq!(result.diag.errors.len(), 1);
         assert_eq!(result.diag.errors[0].code, ErrorCode::E005);
         assert_eq!(result.diag.errors[0].page.as_deref(), Some("t/p.md"));
@@ -1361,7 +1364,7 @@ Inline <b>html</b> is dropped with a warning.
                 let body = format!("# Heading\n\nText [{label}](<{dest}>) and [again](<#heading>) end.\n");
                 let p = page(&body);
                 let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-                let emitted = emit_page(&p, &mut links, &mut NoAssets, 453.5);
+                let emitted = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0));
                 prop_assert!(!emitted.diag.has_errors(), "{:?}", emitted.diag.errors);
                 let src = format!("{PRELUDE}{}", emitted.markup.text);
                 let world = HideoWorld::from_source(&src, Datetime::from_ymd(2000, 1, 1).unwrap());

@@ -7,16 +7,21 @@
 `hideo` turns a folder of Markdown pages and images into one PDF book per _tier_
 (a tier is a folder such as `required`, `additional`, `bonus`). It is a single binary: the
 [Typst](https://typst.app) compiler and PDF exporter are embedded, so there is nothing else
-to install. The only optional external dependency is a Mermaid renderer for diagrams.
+to install. The only optional external dependency is a renderer for
+[Mermaid](https://mermaid.js.org) diagrams.
 
 What you get: a full-bleed cover, a contents page with page numbers, one hero image per
 page, working internal links, styled tables whose header row repeats across pages,
-[Mermaid](https://mermaid.js.org) diagrams, and an **accessible, tagged PDF that is validated
-against PDF/UA-1** on every build. Two builds of the same sources are byte-identical.
+Mermaid diagrams, and an **accessible, tagged PDF that is validated
+against [PDF/UA-1](https://pdfa.org/resource/iso-14289-pdfua/)** on every build. Two builds of
+the same sources are byte-identical.
 
 The design is specified in [PLAN.md](PLAN.md).
 
 ## Install
+
+Building needs [Rust](https://www.rust-lang.org) 1.92 or newer, installed with
+[rustup](https://rustup.rs).
 
 ```sh
 cargo install --path .                      # Rust 1.92 or newer
@@ -61,7 +66,7 @@ hero_alt: "A mountain at dawn" # optional: makes the hero real content with alt 
 Body in the Markdown profile below.
 ```
 
-Pages are ordered by file path with a case-insensitive natural sort (`2_a.md` before
+The configuration is a [TOML](https://toml.io) file. Pages are ordered by file path with a case-insensitive natural sort (`2_a.md` before
 `10_a.md`). Files and folders whose names start with `_` or `.` are ignored.
 
 ## Commands
@@ -79,14 +84,15 @@ Typst for debugging), `--deny-unresolved` (exit 1 if an internal link does not r
 **Exit codes:** `0` success, `1` content or build error (a Markdown mistake names the page and
 line), `2` usage or configuration error.
 
-**Reproducible builds.** The PDF timestamp comes from `SOURCE_DATE_EPOCH` (seconds since the
+**Reproducible builds.** The PDF timestamp comes from
+[`SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/) (seconds since the
 epoch, UTC), or 2000-01-01T00:00:00Z when it is unset. An invalid value is an error.
 
 ## Configuration (`hideo.toml`)
 
 See the annotated [hideo.toml](hideo.toml). Unknown keys are an error. Paths are relative to the
 config file, except `build.cache_dir`, which is relative to the output folder. Required keys:
-`tiers`, `book.lang` (the document language, a BCP 47 tag such as `fi` or `en-GB`: it is never
+`tiers`, `book.lang` (the document language, a [BCP 47](https://www.rfc-editor.org/info/bcp47) tag such as `fi` or `en-GB`: it is never
 silently English) and `cover.title`.
 
 ## Markdown profile
@@ -109,12 +115,15 @@ are reported as _outside this PDF_.
 
 A ` ```mermaid ` code block becomes an image. Give it alt text after the fence language:
 ` ```mermaid "How the pieces connect" `, or use `accTitle:` / `accDescr:` lines. Diagrams are
-rendered by a command that follows the `mmdc` (mermaid-cli) command line, configured under
-`[diagrams]`; `mmdr` works too. Results are cached, so only changed diagrams are rendered
+rendered by a command that follows the command line of `mmdc`
+([mermaid-cli](https://github.com/mermaid-js/mermaid-cli), which needs
+[Node.js](https://nodejs.org) and a Chromium browser), configured under
+`[diagrams]`; [`mmdr`](https://crates.io/crates/mermaid-rs-renderer) works too. Results are cached, so only changed diagrams are rendered
 again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
 
 Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state
-diagrams in-process (no Node or Chromium) and hands the other types (sequence, class, ER, pie,
+diagrams in-process (no Node.js or Chromium; it uses the
+[`mermaid-rs-renderer`](https://crates.io/crates/mermaid-rs-renderer) crate) and hands the other types (sequence, class, ER, pie,
 mindmap, gantt, ...) to the external command.
 
 ## Accessibility
@@ -128,15 +137,18 @@ skipped heading levels, empty table headers, non-descriptive link text and diagr
 
 Typst's validation is structural: it does not judge whether alt text is useful, whether the
 reading order makes sense, or colour contrast (the palette is tested separately). It is not a
-certification; see the open items in PLAN.md (veraPDF, a screen reader pass).
+certification. The output of the test fixtures also passes [veraPDF](https://verapdf.org)
+(`--flavour ua1`); a screen reader pass is still open, see PLAN.md.
 
 Characters that the embedded fonts do not cover (for example Japanese) cannot be displayed;
 the build reports them as errors, and `check` warns first.
 
 ## Fonts
 
-Only the fonts embedded in the binary are used (Libertinus Serif, New Computer Modern,
-DejaVu Sans Mono), so output never depends on the machine.
+Only the fonts embedded in the binary are used
+([Libertinus Serif](https://github.com/alerque/libertinus),
+[New Computer Modern](https://ctan.org/pkg/newcomputermodern),
+[DejaVu Sans Mono](https://dejavu-fonts.github.io)), so output never depends on the machine.
 
 ## Development
 
@@ -147,7 +159,8 @@ cargo fmt --all --check
 cargo test --features native-diagrams
 ```
 
-CI: Semaphore (Linux, macOS) and AppVeyor (Windows); see PLAN.md section 8.6.
+CI: [Semaphore](https://semaphoreci.com) (Linux, macOS) and
+[AppVeyor](https://www.appveyor.com) (Windows); see PLAN.md section 8.6.
 
 ## Background for the project name
 

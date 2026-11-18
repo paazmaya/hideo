@@ -16,6 +16,16 @@ pub const AVG_GLYPH_EM: f64 = 0.5;
 /// Tokens at least this long get break opportunities.
 pub const LONG_TOKEN_CHARS: usize = 16;
 pub const ZWSP: char = '\u{200B}';
+/// Line height of table text relative to the font size (about the font's natural line gap).
+pub const LINE_HEIGHT_EM: f64 = 1.3;
+/// Vertical cell inset on each side.
+pub const CELL_INSET_Y_PT: f64 = 4.0;
+/// Extra lines from ragged wrapping, relative to the ideal count.
+pub const WRAP_SLACK: f64 = 1.15;
+/// A row estimated taller than this share of the text height may split across pages: the
+/// estimate is rough, and a row that really is taller than a page would otherwise be clipped
+/// and lose text. Shorter rows never split.
+pub const TALL_ROW_SHARE: f64 = 0.7;
 
 #[derive(Debug, Clone, Default)]
 pub struct Cell {
@@ -46,6 +56,8 @@ pub struct Layout {
     pub fractions: Vec<f64>,
     /// Even the smallest font does not fit the minimum widths (warning W004).
     pub overflow: bool,
+    /// Indexes into `TableData::rows` of rows that may split across pages (see `TALL_ROW_SHARE`).
+    pub tall_rows: Vec<usize>,
 }
 
 /// Insert U+200B after `.`, `/`, `_`, `-`, `?`, `=`, `&` in whitespace-delimited tokens of at
@@ -154,7 +166,44 @@ pub fn plan(data: &TableData, text_width_pt: f64) -> Layout {
         font_size_pt,
         fractions,
         overflow,
+        tall_rows: Vec::new(),
     }
+}
+
+/// Estimated height of a row in points at the planned font size and column widths.
+fn estimated_row_height(row: &TableRow, layout: &Layout, text_width_pt: f64) -> f64 {
+    let size = layout.font_size_pt;
+    let lines = row
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| {
+            let fraction = layout.fractions.get(i).copied().unwrap_or(0.0);
+            let usable = (fraction * text_width_pt - 2.0 * CELL_INSET_PT).max(size);
+            let per_line = (usable / (AVG_GLYPH_EM * size)).max(1.0);
+            let chars = cell.plain.chars().count() as f64;
+            let by_newline = cell.plain.lines().count().max(1) as f64;
+            (chars / per_line * WRAP_SLACK).ceil().max(by_newline)
+        })
+        .fold(1.0f64, f64::max);
+    lines * size * LINE_HEIGHT_EM + 2.0 * CELL_INSET_Y_PT
+}
+
+/// Mark the rows that are probably taller than `TALL_ROW_SHARE` of a page's text area.
+pub fn mark_tall_rows(
+    layout: &mut Layout,
+    data: &TableData,
+    text_width_pt: f64,
+    text_height_pt: f64,
+) {
+    let limit = TALL_ROW_SHARE * text_height_pt;
+    layout.tall_rows = data
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| estimated_row_height(r, layout, text_width_pt) > limit)
+        .map(|(i, _)| i)
+        .collect();
 }
 
 fn align_name(a: Option<&Alignment>) -> &'static str {
@@ -187,8 +236,19 @@ pub fn emit(data: &TableData, layout: &Layout) -> Vec<(String, usize)> {
     // A one-element array needs a trailing comma in Typst.
     lines.push((format!("  align: ({aligns},),"), first));
 
-    let row_line = |cells: &[Cell], wrap: bool| -> String {
-        let mut parts: Vec<String> = cells.iter().map(|c| format!("[{}]", c.markup)).collect();
+    // `breakable` is only passed for rows that may be taller than a page; the template makes
+    // every other cell unbreakable so that rows are never split across pages.
+    let row_line = |cells: &[Cell], wrap: bool, breakable: bool| -> String {
+        let mut parts: Vec<String> = cells
+            .iter()
+            .map(|c| {
+                if breakable {
+                    format!("table.cell(breakable: true)[{}]", c.markup)
+                } else {
+                    format!("[{}]", c.markup)
+                }
+            })
+            .collect();
         while parts.len() < cols {
             parts.push("[]".to_string());
         }
@@ -199,9 +259,10 @@ pub fn emit(data: &TableData, layout: &Layout) -> Vec<(String, usize)> {
             format!("  {joined},")
         }
     };
-    lines.push((row_line(&data.header.cells, true), data.header.line));
-    for row in &data.rows {
-        lines.push((row_line(&row.cells, false), row.line));
+    lines.push((row_line(&data.header.cells, true, false), data.header.line));
+    for (i, row) in data.rows.iter().enumerate() {
+        let tall = layout.tall_rows.contains(&i);
+        lines.push((row_line(&row.cells, false, tall), row.line));
     }
     lines.push((")".to_string(), first));
     lines.push(("]".to_string(), first));
@@ -351,6 +412,46 @@ mod tests {
         assert!(joined.contains("#set text(size: 8.5pt)"));
         // Exactly one table.header, never a plain first row.
         assert_eq!(joined.matches("table.header").count(), 1);
+    }
+
+    #[test]
+    fn test_table_only_rows_taller_than_a_page_may_split() {
+        let long = "word ".repeat(2500);
+        let d = data(
+            &["A", "B"],
+            &[&["short", "also short"], &["huge", long.trim()]],
+        );
+        let mut layout = plan(&d, 453.5);
+        mark_tall_rows(&mut layout, &d, 453.5, 700.0);
+        assert_eq!(layout.tall_rows, vec![1], "only the huge row");
+        let out: Vec<String> = emit(&d, &layout).into_iter().map(|(t, _)| t).collect();
+        let short = out.iter().find(|l| l.contains("short")).unwrap();
+        assert!(!short.contains("breakable"), "{short}");
+        let huge = out.iter().find(|l| l.contains("huge")).unwrap();
+        assert!(huge.contains("table.cell(breakable: true)[huge]"), "{huge}");
+        // Every cell of the tall row is wrapped, so the row splits as a whole.
+        assert_eq!(huge.matches("table.cell(breakable: true)").count(), 2);
+    }
+
+    #[test]
+    fn test_table_ordinary_rows_are_not_marked_tall() {
+        let rows: Vec<Vec<String>> = (0..30)
+            .map(|i| {
+                vec![
+                    format!("name {i}"),
+                    "a sentence of ordinary length here".into(),
+                ]
+            })
+            .collect();
+        let refs: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|r| r.iter().map(String::as_str).collect())
+            .collect();
+        let slices: Vec<&[&str]> = refs.iter().map(Vec::as_slice).collect();
+        let d = data(&["Name", "Text"], &slices);
+        let mut layout = plan(&d, 453.5);
+        mark_tall_rows(&mut layout, &d, 453.5, 700.0);
+        assert!(layout.tall_rows.is_empty());
     }
 
     #[test]

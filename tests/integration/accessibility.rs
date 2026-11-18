@@ -419,3 +419,114 @@ fn test_pdf_ua_off_builds_despite_missing_glyphs() {
     assert!(r.status.success(), "{}", stderr(&r));
     assert!(out.path().join("required.pdf").exists());
 }
+
+/// A copy of the `minimal` fixture whose first page holds a long table: 40 rows, each cell a
+/// run of marker words (`r07a1 r07a2 ...`) that wraps to several lines.
+fn long_table_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), dir.path());
+    let mut body = String::from(
+        "---\ntitle: \"Long table\"\nhero: \"images/hero.png\"\n---\n\n# Long table\n\n| Name | Details |\n| --- | --- |\n",
+    );
+    for r in 0..40 {
+        let words = |c: char| {
+            (1..=40)
+                .map(|w| format!("r{r:02}{c}{w}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        body.push_str(&format!("| {} | {} |\n", words('a'), words('b')));
+    }
+    let required = dir.path().join("required");
+    std::fs::write(required.join("01_intro.md"), body).unwrap();
+    dir
+}
+
+#[test]
+fn test_table_rows_are_never_split_across_pages() {
+    let dir = long_table_project();
+    let out = tempfile::tempdir().unwrap();
+    let r = hideo()
+        .args(["build", "-q", "--input"])
+        .arg(dir.path())
+        .arg("--output")
+        .arg(out.path())
+        .output()
+        .unwrap();
+    assert!(r.status.success(), "{}", stderr(&r));
+    let doc = load(&out.path().join("required.pdf"));
+    let pages = page_count(&doc) as u32;
+
+    // Which pages hold the marker words of each row.
+    let mut row_pages: Vec<std::collections::BTreeSet<u32>> = vec![Default::default(); 40];
+    let mut header_pages = std::collections::BTreeSet::new();
+    for n in 1..=pages {
+        let text = page_text(&doc, n);
+        for word in text.split_whitespace() {
+            if let Some(rest) = word.strip_prefix('r')
+                && rest.len() >= 4
+                && let Ok(row) = rest[..2].parse::<usize>()
+                && row < 40
+            {
+                row_pages[row].insert(n);
+            }
+        }
+        if text.contains("Details") {
+            header_pages.insert(n);
+        }
+    }
+    let used: std::collections::BTreeSet<u32> = row_pages.iter().flatten().copied().collect();
+    assert!(
+        used.len() >= 3,
+        "the table must cross page boundaries for this test to mean anything: {used:?}"
+    );
+    for (row, p) in row_pages.iter().enumerate() {
+        assert_eq!(p.len(), 1, "row {row} is split over pages {p:?}");
+    }
+    // The header repeats on every page the table occupies.
+    assert!(
+        used.is_subset(&header_pages),
+        "header on {header_pages:?}, rows on {used:?}"
+    );
+}
+
+#[test]
+fn test_table_row_taller_than_a_page_splits_without_losing_text() {
+    // A row that cannot fit on any page must split; an unbreakable row would be clipped and
+    // silently drop its text. The rows around it still stay whole.
+    let dir = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), dir.path());
+    let big = (1..=1500)
+        .map(|i| format!("big{i}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let body = format!(
+        "---\ntitle: \"Huge row\"\nhero: \"images/hero.png\"\n---\n\n# Huge row\n\n| Name | Details |\n| --- | --- |\n| first | row |\n| huge | {big} |\n| last | row |\n"
+    );
+    std::fs::write(dir.path().join("required/01_intro.md"), body).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let r = hideo()
+        .args(["build", "-q", "--input"])
+        .arg(dir.path())
+        .arg("--output")
+        .arg(out.path())
+        .output()
+        .unwrap();
+    assert!(r.status.success(), "{}", stderr(&r));
+    let doc = load(&out.path().join("required.pdf"));
+    let text: String = (1..=page_count(&doc) as u32)
+        .map(|n| page_text(&doc, n))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let words: std::collections::BTreeSet<&str> = text.split_whitespace().collect();
+    for i in 1..=1500 {
+        assert!(
+            words.contains(format!("big{i}").as_str()),
+            "big{i} was lost"
+        );
+    }
+    assert!(
+        words.contains("last"),
+        "the row after the huge one is present"
+    );
+}

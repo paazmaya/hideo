@@ -314,6 +314,11 @@ impl Config {
         (self.page.width_mm - 2.0 * self.page.margin_x_mm) * MM_TO_PT
     }
 
+    /// Text height in points (the pages are A4, 297 mm).
+    pub fn text_height_pt(&self) -> f64 {
+        (297.0 - 2.0 * self.page.margin_y_mm) * MM_TO_PT
+    }
+
     pub fn tier_line(&self, tier: &str) -> String {
         self.cover
             .tier_line

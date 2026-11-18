@@ -371,7 +371,12 @@ fn prepare_tier(
             diag: DiagnosticCollector::default(),
             body_images: 0,
         };
-        let emitted = emit_page(page, &mut links, &mut assets, config.text_width_pt());
+        let emitted = emit_page(
+            page,
+            &mut links,
+            &mut assets,
+            (config.text_width_pt(), config.text_height_pt()),
+        );
         diag.extend(assets.diag);
         body_images += assets.body_images;
         diag.extend(emitted.diag);

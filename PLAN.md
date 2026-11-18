@@ -56,7 +56,7 @@
 - [x] Width/fraction algorithm, font reduction, long-string ZWSP, alignment
 - [x] Header row emitted as `table.header(...)`; W006
 - [x] Struct-tree test with `lopdf`: header cells are `TH` with column scope, body cells `TD`, negative control
-- [ ] Non-splitting rows: `set table.cell(breakable: false)` is in the template, but no fixture proves that a row that fits is never split across pages
+- [x] Non-splitting rows: `test_table_rows_are_never_split_across_pages` builds a 40-row table that crosses pages and checks that every row's text sits on one page and the header repeats; with `breakable: true` in the template it fails (row 5 split over pages 3 and 4)
 
 **M6 Typst Integration (F10, F12–F14, F19, F20, F24)**
 
@@ -79,7 +79,7 @@
 
 - [x] Full-fixture build, PDF/UA-1 passes, `typst-render` visual snapshots in `tests/visual/` (8 pages, reviewed against Appendix B)
 - [x] Performance benchmark on a generated corpus: goal met (note N6)
-- [ ] veraPDF baseline (`--flavour ua1`) on the `full/` PDFs (manual; needs Java)
+- [x] veraPDF 1.30.4 baseline (`--flavour ua1`, 2026-11-18): `required.pdf` (12 pages), `additional.pdf`, `bonus.pdf` built from `tests/fixtures/full`, and the generated 84-page, 120-diagram book all **PASS**. Not wired into CI (needs Java and the installer)
 - [ ] One screen-reader pass (NVDA) over the cover, contents and a table-heavy page (manual)
 
 **M9 Packaging**
@@ -127,6 +127,17 @@ Findings and deviations from the text below, in the order they matter:
   `themeVariables.fontFamily` (W010 otherwise). `assets/mermaid-theme.json` sets both. On Windows
   `command = "mmdc"` finds the npm `.cmd` shim. Remaining W010 from `mmdc`: a `&quot` fragment in
   sequence diagrams and `sans-serif` in gantt charts (generic fallbacks, harmless).
+- **N12. Tables split between rows, never inside one, unless a row is taller than a page.** The
+  template makes every table cell unbreakable (`set table.cell(breakable: false)`) and the header is
+  `table.header`, so it repeats on every page of the table. Unbreakable cells have a flaw found on
+  2026-11-18: a row taller than a page is clipped and **loses text silently** (a 1500-word cell lost
+  everything after about word 1100). The emitter now estimates each row's height from its text, the
+  column fractions and the font size (`tables::mark_tall_rows`) and emits
+  `table.cell(breakable: true)[…]` for rows estimated taller than 70 % of the text height
+  (`TALL_ROW_SHARE`), which may split. Trade-off: a row between roughly 70 % and 100 % of a page
+  can now split where it would have fitted whole. Tests:
+  `test_table_row_taller_than_a_page_splits_without_losing_text`,
+  `test_table_rows_are_never_split_across_pages`, and unit tests for the estimate.
 - **N11. 120-diagram run with `mmdc`** (`scratchpad/gen120.py`: 120 distinct diagrams over the nine
   types of N5, four per page; 84-page PDF). 0 errors; cold 25 to 27 s, warm 1 s (the cache lives in
   `<output>/.hideo-cache`, so a different `--output` is a cold build). The run found two things: the
@@ -1814,6 +1825,7 @@ The working tree is what is left after the Node.js tool was removed (`a4405d4`).
 - [x] Add `tests/fixtures/` skeletons (8.4) and the day-1 vertical-slice test: compile a hard-coded Typst string
       through `HideoWorld`, export with `typst_pdf::pdf`, load with `lopdf::Document::load_mem`, assert one page.
 - [x] `hideo.toml` example from Appendix A at the repo root.
+- [x] (License audit done 2026-11-18: `LICENSE` is MIT and every crate in `cargo metadata --all-features` is permissive; `deny.toml` holds the allow-list. The optional Semaphore `cargo deny` job is not added because `cargo-deny` could not be run here to validate the file.)
 - [ ] `LICENSE` is MIT. All direct dependencies listed are MIT, Apache-2.0 or dual MIT/Apache-2.0 (`typst*`
       Apache-2.0, `pulldown-cmark` MIT, `mermaid-rs-renderer` MIT, `merman` MIT OR Apache-2.0), so this is
       compatible. Add `cargo-deny` **(optional)** with an allow-list to keep it that way, as a Semaphore job.
