@@ -127,6 +127,19 @@ Findings and deviations from the text below, in the order they matter:
   `themeVariables.fontFamily` (W010 otherwise). `assets/mermaid-theme.json` sets both. On Windows
   `command = "mmdc"` finds the npm `.cmd` shim. Remaining W010 from `mmdc`: a `&quot` fragment in
   sequence diagrams and `sans-serif` in gantt charts (generic fallbacks, harmless).
+- **N13. Default font is Readex Pro** (user decision, 2026-11-18), replacing Libertinus Serif. The
+  fonts are copied to `assets/fonts/readexpro/` (Regular, Medium, SemiBold, Bold, plus Light,
+  ExtraLight, the SIL OFL 1.1 text, AUTHORS and CONTRIBUTORS; the variable font is not copied) and
+  the first four are embedded with `include_bytes!` in `world.rs`; Typst's own fonts stay as
+  fallback. The OFL text ships in the release archives as `OFL-ReadexPro.txt`. Consequences:
+  (1) **Readex Pro has no italic and Typst does not fake one**, so `#emph` was invisible; the template
+  sets emphasis (and level-6 headings) in Libertinus Serif Italic at 1.1 em, which keeps the `emph`
+  tag. (2) The font is about 16 % wider (0.48 em against 0.42 em on prose): `AVG_GLYPH_EM` for tables
+  went from 0.5 to 0.58, the book got longer (`full/required` 12 to 13 pages), and the visual
+  baselines were regenerated and reviewed (pages 3, 5, 7, 8 of `full`). (3) Mermaid's theme font is
+  Readex Pro. (4) Coverage is Latin only; Japanese still fails as before. (5) Re-checked with the new font:
+  the 120-diagram book builds with 0 errors (29 s cold), and the `full` PDFs and that book still pass
+  veraPDF `ua1`.
 - **N12. Tables split between rows, never inside one, unless a row is taller than a page.** The
   template makes every table cell unbreakable (`set table.cell(breakable: false)`) and the header is
   `table.header`, so it repeats on every page of the table. Unbreakable cells have a flaw found on
@@ -1658,7 +1671,7 @@ page geometry filled in from the configuration.
 | Element        | Specification                                                                                                                                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Page           | A4 portrait, margins from the configuration; footer: page number centred, 8 pt, `#6E6682`                                                                                                                                                                                 |
-| Body text      | Libertinus Serif 10.5 pt, `#2A2438`, not justified, leading 0.75 em, paragraph spacing 0.65 em, language from frontmatter                                                                                                                                                 |
+| Body text      | **Readex Pro** (changed from Libertinus Serif, see N13) 10.5 pt, `#2A2438`, not justified, leading 0.75 em, paragraph spacing 0.65 em, language from frontmatter                                                                                                                                                 |
 | Heading 1      | 19 pt bold, `#24134D`, 1.6 em above and 1.5 em below, kept with the next block                                                                                                                                                                                            |
 | Heading 2      | 15 pt bold, `#3D2A7A`, 2.4 em above and 1.4 em below, kept with the next block                                                                                                                                                                                            |
 | Heading 3      | 12 pt bold, `#52389A`, 1.8 em above and 1.1 em below, kept with the next block                                                                                                                                                                                            |
@@ -1696,7 +1709,8 @@ Caveat: `#6E6682` on the placeholder fill `#E7E3EF` is only 4.28:1. The spec has
 one is ever added, use `#2A2438`. The table-rule colour `#D3CCE4` is decorative (not text) and exempt.
 Contrast is not checked by Typst's PDF/UA validation; `test_palette_contrast_at_least_4_5` covers it.
 
-Font note: only Libertinus Serif and DejaVu Sans Mono are used, both embedded; nothing in the spec requires a
+Font note (superseded by N13: the default is now Readex Pro, a sans-serif, with Libertinus Serif italic for
+emphasis): only Libertinus Serif and DejaVu Sans Mono were used, both embedded; nothing in the spec required a
 sans-serif face. Bold/italic variants of both are embedded (Libertinus Regular/Italic/Semibold/Bold/BoldItalic/SemiboldItalic; DejaVu Sans Mono Regular/Bold/Oblique/BoldOblique).
 
 ---

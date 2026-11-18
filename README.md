@@ -145,10 +145,16 @@ the build reports them as errors, and `check` warns first.
 
 ## Fonts
 
-Only the fonts embedded in the binary are used
-([Libertinus Serif](https://github.com/alerque/libertinus),
-[New Computer Modern](https://ctan.org/pkg/newcomputermodern),
-[DejaVu Sans Mono](https://dejavu-fonts.github.io)), so output never depends on the machine.
+Only the fonts embedded in the binary are used, so output never depends on the machine.
+The default text font is [Readex Pro](https://github.com/ThomasJockin/readexpro) (SIL Open Font
+License 1.1; the font files and the license are in
+[assets/fonts/readexpro/](assets/fonts/readexpro/)). It has no italic, and Typst does not fake
+one, so emphasis (`*text*`) is set in the italic of
+[Libertinus Serif](https://github.com/alerque/libertinus). Libertinus Serif also supplies glyphs
+that Readex Pro lacks. Code uses [DejaVu Sans Mono](https://dejavu-fonts.github.io), and Typst
+also embeds [New Computer Modern](https://ctan.org/pkg/newcomputermodern). Readex Pro covers
+Latin (the Finnish and Swedish letters render, see the test fixtures) but not Japanese; see the
+character coverage note under Accessibility.
 
 ## Development
 

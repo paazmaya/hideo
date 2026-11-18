@@ -20,7 +20,8 @@ use crate::error::{ErrorCode, HideoError, Warning, WarningCode};
 pub const DIAGRAM_PIPELINE_VERSION: &str = "hideo_diagram_v1";
 
 /// Font families embedded in the binary (via `typst-kit/embedded-fonts`).
-pub const EMBEDDED_FAMILIES: [&str; 4] = [
+pub const EMBEDDED_FAMILIES: [&str; 5] = [
+    "readex pro",
     "libertinus serif",
     "new computer modern",
     "new computer modern math",
@@ -364,7 +365,7 @@ pub fn render_all(
                             Warning::new(
                                 WarningCode::W010,
                                 format!(
-                                    "diagram text uses font-family `{font}`, which is not embedded; set themeVariables.fontFamily to \"Libertinus Serif\""
+                                    "diagram text uses font-family `{font}`, which is not embedded; set the diagram theme's fontFamily to \"Readex Pro\""
                                 ),
                             )
                             .with_location(o.page.clone(), o.line),
@@ -693,9 +694,9 @@ classDiagram
     #[test]
     fn embedded_theme_is_valid_json_with_font_and_no_html_labels() {
         let v: serde_json::Value = serde_json::from_str(&Theme::embedded().json).unwrap();
-        assert_eq!(v["themeVariables"]["fontFamily"], "Libertinus Serif");
+        assert_eq!(v["themeVariables"]["fontFamily"], "Readex Pro");
         // mermaid 11+ (mmdc 12) only honours the top-level key; older versions the nested one.
-        assert_eq!(v["fontFamily"], "Libertinus Serif");
+        assert_eq!(v["fontFamily"], "Readex Pro");
         // Without a seed, class and ER diagrams get random outline jitter on every run.
         assert_eq!(v["handDrawnSeed"], 1);
         assert_eq!(v["htmlLabels"], false);

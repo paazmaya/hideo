@@ -2,10 +2,10 @@
   "theme": "base",
   "look": "neo",
   "htmlLabels": false,
-  "fontFamily": "Libertinus Serif",
+  "fontFamily": "Readex Pro",
   "handDrawnSeed": 1,
   "themeVariables": {
-    "fontFamily": "Libertinus Serif",
+    "fontFamily": "Readex Pro",
     "fontSize": "22.4px",
     "radius": 8,
     "primaryColor": "#E9E3F6",

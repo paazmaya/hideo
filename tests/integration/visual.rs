@@ -119,7 +119,8 @@ fn visual_minimal_book() {
 #[test]
 fn visual_full_book_content_pages() {
     // first content page (hero, lead-in, lists), headings/quote page, code page, table page
-    check("full", "required", &[3, 5, 6, 7]);
+    // (Readex Pro is wider than the old font, so the pages of this book shifted by one)
+    check("full", "required", &[3, 5, 7, 8]);
 }
 
 #[test]

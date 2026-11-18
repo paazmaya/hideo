@@ -36,7 +36,7 @@ A quote with a #link(<t-p--top>)[link].
 #[
 #set text(size: 8.5pt)
 #table(
-  columns: (0.7439fr, 0.1367fr, 0.1194fr),
+  columns: (0.7495fr, 0.1340fr, 0.1165fr),
   align: (left, center, right,),
   table.header([Left], [Centre], [Right]),
   [a], [#strong[b]], [#raw("c")],

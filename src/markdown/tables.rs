@@ -10,9 +10,11 @@ use pulldown_cmark::Alignment;
 pub const FONT_SIZES_PT: [f64; 3] = [8.5, 7.5, 7.0];
 /// Horizontal cell inset on each side (Appendix B: 4 pt).
 pub const CELL_INSET_PT: f64 = 4.0;
-/// Average glyph width of Libertinus Serif relative to the font size (plan: 0.5 em,
-/// approximate; the hand-computed unit tests below pin the algorithm, not the constant).
-pub const AVG_GLYPH_EM: f64 = 0.5;
+/// Average glyph width of Readex Pro relative to the font size. Readex Pro measures 0.48 em on
+/// English prose; the constant is 0.58 em to allow for capitals, digits and wrapping slack (the
+/// same margin the plan's 0.5 em had for Libertinus Serif, which measures 0.42 em). Approximate;
+/// the hand-computed unit tests below pin the algorithm, not the constant.
+pub const AVG_GLYPH_EM: f64 = 0.58;
 /// Tokens at least this long get break opportunities.
 pub const LONG_TOKEN_CHARS: usize = 16;
 pub const ZWSP: char = '\u{200B}';
@@ -302,32 +304,36 @@ mod tests {
 
     #[test]
     fn test_table_narrow_one_size() {
-        // Hand computed at 8.5 pt: glyph = 4.25 pt, inset 8 pt.
-        // col0: "ab" pref 2*4.25+8 = 16.5, col1: "abcdef" pref 6*4.25+8 = 33.5; sum 50 <= W.
+        // At 8.5 pt a glyph is AVG_GLYPH_EM * 8.5 pt wide and the inset is 8 pt in total.
+        // col0: "ab" pref 2g+8, col1: "abcdef" pref 6g+8; their sum is far below W.
+        let g = AVG_GLYPH_EM * 8.5;
+        let (p0, p1) = (2.0 * g + 8.0, 6.0 * g + 8.0);
         let d = data(&["ab", "abcdef"], &[&["a", "b"]]);
         let l = plan(&d, W);
         assert_eq!(l.font_size_pt, 8.5);
         assert!(!l.overflow);
         assert!(
-            (l.fractions[0] - 16.5 / 50.0).abs() < 1e-9,
+            (l.fractions[0] - p0 / (p0 + p1)).abs() < 1e-9,
             "{:?}",
             l.fractions
         );
-        assert!((l.fractions[1] - 33.5 / 50.0).abs() < 1e-9);
+        assert!((l.fractions[1] - p1 / (p0 + p1)).abs() < 1e-9);
     }
 
     #[test]
     fn test_table_wide_reduced_font() {
-        // Eight columns each with a 16-char unbreakable word. At 8.5 pt min = 16*4.25+8 = 76,
-        // sum 608 > 453.5. At 7.5 pt: 16*3.75+8 = 68, sum 544 > 453.5. At 7.0 pt: 16*3.5+8 = 64,
-        // sum 512 > 453.5, so nothing fits -> 7.0 pt and overflow.
-        let word = "abcdefghijklmnop";
+        // A 15-char unbreakable word needs 15*g + 8 pt per column, g = AVG_GLYPH_EM * size.
+        let word = "abcdefghijklmno";
+        let min = |size: f64| 15.0 * AVG_GLYPH_EM * size + 8.0;
+        // Eight columns: even at 7.0 pt 8 * min(7.0) > W, so nothing fits -> 7.0 pt and overflow.
+        assert!(8.0 * min(7.0) > W);
         let d = data(&[word; 8], &[&[word; 8]]);
         let l = plan(&d, W);
         assert_eq!(l.font_size_pt, 7.0);
         assert!(l.overflow);
 
-        // Six columns: 8.5pt: 6*76 = 456 > 453.5; 7.5pt: 6*68 = 408 <= 453.5 -> 7.5.
+        // Six columns: 8.5 pt does not fit, 7.5 pt does -> 7.5.
+        assert!(6.0 * min(8.5) > W && 6.0 * min(7.5) <= W);
         let d = data(&[word; 6], &[&[word; 6]]);
         let l = plan(&d, W);
         assert_eq!(l.font_size_pt, 7.5);
@@ -342,7 +348,7 @@ mod tests {
         let l = plan(&d, W);
         let s = l.font_size_pt;
         assert_eq!(s, 8.5);
-        let min0 = 2.0 * 4.25 + 8.0; // "id"
+        let min0 = 2.0 * AVG_GLYPH_EM * 8.5 + 8.0; // "id"
         assert!((l.fractions.iter().sum::<f64>() - 1.0).abs() < 1e-9);
         assert!(
             l.fractions[1] > 0.8,

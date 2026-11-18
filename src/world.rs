@@ -1,6 +1,6 @@
 //! The Typst `World`: all inputs live in memory (plan 7.8).
 //!
-//! Only the four embedded font families exist (no system fonts), so output cannot vary with the
+//! Only the embedded font families exist (no system fonts), so output cannot vary with the
 //! machine. Typst types are confined to this file and `compile.rs` (plan risk table).
 
 use std::collections::{BTreeMap, HashMap};
@@ -18,9 +18,33 @@ use typst_kit::fonts::{self, FontStore};
 
 static LIBRARY: LazyLock<LazyHash<Library>> = LazyLock::new(|| LazyHash::new(Library::default()));
 
+/// Readex Pro (SIL OFL 1.1, see `assets/fonts/readexpro/OFL.txt`), the default text font. The
+/// weights the template uses: regular text, medium, semi-bold and bold. Readex Pro has no
+/// italic; the template handles emphasis itself.
+const READEX_PRO: [&[u8]; 4] = [
+    include_bytes!("../assets/fonts/readexpro/ReadexPro-Regular.ttf"),
+    include_bytes!("../assets/fonts/readexpro/ReadexPro-Medium.ttf"),
+    include_bytes!("../assets/fonts/readexpro/ReadexPro-SemiBold.ttf"),
+    include_bytes!("../assets/fonts/readexpro/ReadexPro-bold.ttf"),
+];
+
+/// All fonts of the book: Readex Pro first, then the fonts embedded in Typst (Libertinus Serif
+/// as fallback for glyphs Readex Pro lacks, New Computer Modern, DejaVu Sans Mono for code).
+/// The order is fixed, so font indexes and the output are stable.
+fn book_fonts() -> impl Iterator<Item = (Font, typst::text::FontInfo)> {
+    READEX_PRO
+        .into_iter()
+        .flat_map(|data| Font::iter(Bytes::new(data)))
+        .map(|font| {
+            let info = font.info().clone();
+            (font, info)
+        })
+        .chain(fonts::embedded())
+}
+
 static FONTS: LazyLock<FontStore> = LazyLock::new(|| {
     let mut store = FontStore::new();
-    store.extend(fonts::embedded());
+    store.extend(book_fonts());
     store
 });
 
@@ -40,7 +64,7 @@ impl FileLoader for MemLoader {
 
 /// Unicode coverage of each embedded font, for character coverage checks.
 static EMBEDDED_COVERAGE: LazyLock<Vec<typst::text::FontInfo>> =
-    LazyLock::new(|| fonts::embedded().map(|(_font, info)| info).collect());
+    LazyLock::new(|| book_fonts().map(|(_font, info)| info).collect());
 
 /// Characters of `text` that none of the embedded fonts can display. Typst falls back across
 /// all fonts, so the union of their coverage is what counts. Whitespace, controls and

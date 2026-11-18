@@ -65,6 +65,7 @@ after_test:
         $dir = "hideo-$v-x86_64-pc-windows-msvc"
         New-Item -ItemType Directory $dir | Out-Null
         Copy-Item target\release\hideo.exe, LICENSE, README.md $dir
+        Copy-Item assets\fonts\readexpro\OFL.txt "$dir\OFL-ReadexPro.txt"
         Compress-Archive $dir "$dir.zip"
         (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Set-Content "$dir.zip.sha256"
         Push-AppveyorArtifact "$dir.zip"

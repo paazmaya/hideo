@@ -19,7 +19,7 @@
 // The whole book: document metadata, language, page geometry and styles.
 #let book(lang: "en", title: "", author: "", body) = {
   set document(title: title, author: if author == "" { () } else { author })
-  set text(lang: lang, font: "Libertinus Serif", size: 10.5pt, fill: ink)
+  set text(lang: lang, font: ("Readex Pro", "Libertinus Serif"), size: 10.5pt, fill: ink)
   set page(
     width: page-width,
     height: 297mm,
@@ -33,6 +33,11 @@
   )
   set par(leading: 0.75em, spacing: 0.65em, justify: false)
 
+  // Readex Pro has no italic and Typst does not fake one, so emphasis would be invisible.
+  // Emphasised text uses the real italic of Libertinus Serif, scaled to match the larger x-height
+  // of Readex Pro. The `emph` element stays, so it is still tagged as emphasis.
+  show emph: set text(font: "Libertinus Serif", size: 1.1em)
+
   set heading(numbering: none)
   show heading.where(level: 1): set text(size: 19pt, weight: "bold", fill: h1-color)
   show heading.where(level: 1): set block(above: 1.6em, below: 1.5em)
@@ -42,9 +47,9 @@
   show heading.where(level: 3): set block(above: 1.8em, below: 1.1em)
   show heading.where(level: 4): set text(size: 10.5pt, weight: "bold", fill: h3-color)
   show heading.where(level: 4): set block(above: 1.6em, below: 1em)
-  show heading.where(level: 5): set text(size: 10.5pt, weight: "bold", style: "italic", fill: h3-color)
+  show heading.where(level: 5): set text(size: 10.5pt, weight: "bold", fill: h3-color)
   show heading.where(level: 5): set block(above: 1.6em, below: 1em)
-  show heading.where(level: 6): set text(size: 10.5pt, style: "italic", fill: h3-color)
+  show heading.where(level: 6): set text(font: "Libertinus Serif", size: 11.5pt, style: "italic", weight: "regular", fill: h3-color)
   show heading.where(level: 6): set block(above: 1.6em, below: 1em)
 
   set list(spacing: 0.65em)

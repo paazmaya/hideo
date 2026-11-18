@@ -29,8 +29,8 @@ blocks:
             - cargo build --release --locked
             - mkdir -p release
             - cp target/release/hideo release/
-            - cp LICENSE README.md release/
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz hideo LICENSE README.md
+            - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
+            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz.sha256
@@ -47,8 +47,8 @@ blocks:
             - cargo build --release --locked
             - mkdir -p release
             - cp target/release/hideo release/
-            - cp LICENSE README.md release/
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz hideo LICENSE README.md
+            - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
+            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz.sha256
@@ -65,8 +65,8 @@ blocks:
             - cargo build --release --locked
             - mkdir -p release
             - cp target/release/hideo release/
-            - cp LICENSE README.md release/
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz hideo LICENSE README.md
+            - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
+            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz.sha256
@@ -84,8 +84,8 @@ blocks:
             - cargo build --release --locked --target x86_64-apple-darwin
             - mkdir -p release
             - cp target/x86_64-apple-darwin/release/hideo release/
-            - cp LICENSE README.md release/
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz hideo LICENSE README.md
+            - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
+            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz.sha256
