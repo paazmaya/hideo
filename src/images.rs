@@ -351,4 +351,13 @@ mod tests {
         other.dpi = 101;
         assert_ne!(a, cache_key(b"abc", &other));
     }
+
+    #[test]
+    fn test_image_errors() {
+        let err = process_file(Path::new("does/not/exist.png"), &settings(), None);
+        assert!(matches!(err, Err(ImageError::Read { .. })));
+
+        let bad_dims = jpeg_dimensions(b"corrupt image bytes");
+        assert!(matches!(bad_dims, Err(ImageError::Decode(_))));
+    }
 }

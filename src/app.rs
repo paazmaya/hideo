@@ -233,3 +233,160 @@ fn list_command(args: ListArgs) -> Result<u8, ConfigError> {
     let _ = report::write_text(&mut std::io::stderr(), &report, &[], false);
     Ok(EXIT_OK)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backend_from_cli() {
+        let cfg = Config::from_toml(
+            "tiers=[\"t\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            camino::Utf8Path::new("."),
+        )
+        .unwrap();
+        assert_eq!(
+            backend_from_cli(&cfg, Some(DiagramBackend::External)),
+            DiagramBackendConfig::External
+        );
+        assert_eq!(
+            backend_from_cli(&cfg, Some(DiagramBackend::Native)),
+            DiagramBackendConfig::Native
+        );
+        assert_eq!(
+            backend_from_cli(&cfg, Some(DiagramBackend::Off)),
+            DiagramBackendConfig::Off
+        );
+        assert_eq!(backend_from_cli(&cfg, None), cfg.diagrams.backend);
+    }
+
+    #[test]
+    fn test_thread_pool() {
+        assert!(thread_pool(Some(0)).is_err());
+        assert!(thread_pool(Some(1)).is_ok());
+        assert!(thread_pool(None).is_ok());
+    }
+
+    #[test]
+    fn test_select_tiers() {
+        let cfg = Config::from_toml(
+            "tiers=[\"a\", \"b\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            camino::Utf8Path::new("."),
+        )
+        .unwrap();
+        assert_eq!(select_tiers(&cfg, &[]).unwrap(), vec!["a", "b"]);
+        assert_eq!(select_tiers(&cfg, &["a".into()]).unwrap(), vec!["a"]);
+        assert!(select_tiers(&cfg, &["c".into()]).is_err());
+    }
+
+    #[test]
+    fn test_load_config() {
+        let input = Utf8PathBuf::from("tests/fixtures/minimal");
+        assert!(load_config(&input, &None).is_ok());
+        let bad = Utf8PathBuf::from("does/not/exist");
+        assert!(load_config(&bad, &None).is_err());
+    }
+
+    #[test]
+    fn test_build_verbose_and_run() {
+        let out_dir = tempfile::tempdir().unwrap();
+        let args = BuildArgs {
+            input: Utf8PathBuf::from("tests/fixtures/minimal"),
+            output: Utf8PathBuf::from_path_buf(out_dir.path().to_path_buf()).unwrap(),
+            config: None,
+            tiers: vec!["required".into()],
+            deny_unresolved: false,
+            keep_typst: None,
+            quiet: false,
+            verbose: true,
+            jobs: Some(1),
+            diagrams: Some(DiagramBackend::Off),
+        };
+        let code = build_command(args).unwrap();
+        assert_eq!(code, EXIT_OK);
+
+        // Test run wrapper
+        let cli = Cli {
+            command: Command::List(ListArgs {
+                input: Utf8PathBuf::from("tests/fixtures/minimal"),
+                config: None,
+                tiers: vec![],
+                format: ReportFormat::Text,
+            }),
+        };
+        assert_eq!(run(cli), ExitCode::from(EXIT_OK));
+
+        let cli_err = Cli {
+            command: Command::Build(BuildArgs {
+                input: Utf8PathBuf::from("nonexistent"),
+                output: Utf8PathBuf::from("out"),
+                config: None,
+                tiers: vec![],
+                deny_unresolved: false,
+                keep_typst: None,
+                quiet: false,
+                verbose: false,
+                jobs: None,
+                diagrams: None,
+            }),
+        };
+        assert_eq!(run(cli_err), ExitCode::from(EXIT_USAGE));
+    }
+
+    #[test]
+    fn test_list_command_formats_and_error_handling() {
+        let args_text = ListArgs {
+            input: Utf8PathBuf::from("tests/fixtures/minimal"),
+            config: None,
+            tiers: vec![],
+            format: ReportFormat::Text,
+        };
+        assert_eq!(list_command(args_text).unwrap(), EXIT_OK);
+
+        let args_json = ListArgs {
+            input: Utf8PathBuf::from("tests/fixtures/minimal"),
+            config: None,
+            tiers: vec![],
+            format: ReportFormat::Json,
+        };
+        assert_eq!(list_command(args_json).unwrap(), EXIT_OK);
+
+        // Test list command with content error
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("hideo.toml");
+        std::fs::write(
+            &cfg_path,
+            "tiers=[\"t\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+        )
+        .unwrap();
+        let t_dir = dir.path().join("t");
+        std::fs::create_dir_all(&t_dir).unwrap();
+        std::fs::write(t_dir.join("p.md"), "---\nhero: h\n---\nx").unwrap(); // missing title
+        let args_bad = ListArgs {
+            input: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            config: None,
+            tiers: vec![],
+            format: ReportFormat::Text,
+        };
+        assert_eq!(list_command(args_bad).unwrap(), EXIT_CONTENT);
+    }
+
+    #[test]
+    fn test_check_command() {
+        let args = CheckArgs {
+            input: Utf8PathBuf::from("tests/fixtures/minimal"),
+            config: None,
+            tiers: vec![],
+            format: ReportFormat::Text,
+        };
+        assert_eq!(check_command(args).unwrap(), EXIT_OK);
+
+        let args_json = CheckArgs {
+            input: Utf8PathBuf::from("tests/fixtures/minimal"),
+            config: None,
+            tiers: vec![],
+            format: ReportFormat::Json,
+        };
+        assert_eq!(check_command(args_json).unwrap(), EXIT_OK);
+    }
+}

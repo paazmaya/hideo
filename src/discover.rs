@@ -103,7 +103,7 @@ pub fn discover(
             .into_iter()
             .filter_entry(|e| {
                 // Prune ignored directories early; the root itself is never pruned.
-                if e.depth() == 0 {
+                if e.depth() == 0 || !e.file_type().is_dir() {
                     return true;
                 }
                 e.file_name()
@@ -134,10 +134,7 @@ pub fn discover(
             if utf8.extension() != Some("md") {
                 continue;
             }
-            let rel = match utf8.strip_prefix(source_dir) {
-                Ok(r) => to_slash(r),
-                Err(_) => to_slash(&utf8),
-            };
+            let rel = to_slash(utf8.strip_prefix(source_dir).unwrap_or(&utf8));
             let in_tier = rel
                 .strip_prefix(&format!("{tier}/"))
                 .unwrap_or(&rel)
@@ -322,6 +319,7 @@ mod tests {
     fn test_compare_paths_is_total_and_stable() {
         assert_eq!(compare_paths("t/A.md", "t/a.md"), "t/A.md".cmp("t/a.md"));
         assert_eq!(compare_paths("t/a", "t/a/b"), Ordering::Less);
+        assert_eq!(compare_paths("t/a/b", "t/a"), Ordering::Greater);
     }
 
     #[cfg(unix)]
@@ -332,6 +330,17 @@ mod tests {
         let path = Path::new(OsStr::from_bytes(b"t/bad\xff.md"));
         let e = utf8_path(path).unwrap_err();
         assert_eq!(e.code, ErrorCode::E001);
+    }
+
+    #[test]
+    fn test_invalid_utf8_file_content_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "t/valid.md", &page("ok"));
+        let bad_path = dir.path().join("t/bad_content.md");
+        fs::write(bad_path, &[0xff, 0xfe, 0xfd]).unwrap();
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let (_tiers, d) = discover(&config(&["t"]), &["t".into()], &root);
+        assert!(d.errors.iter().any(|e| e.message.contains("valid UTF-8")));
     }
 
     #[test]
@@ -354,5 +363,18 @@ mod tests {
                 .iter()
                 .any(|e| e.page.as_deref() == Some("t/unclosed.md") && e.line == Some(1))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_unreadable_page_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "t/unreadable.md", "content");
+        let p = dir.path().join("t/unreadable.md");
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let (_tiers, d) = discover(&config(&["t"]), &["t".into()], &root);
+        assert!(d.errors.iter().any(|e| e.message.contains("cannot read page")));
     }
 }

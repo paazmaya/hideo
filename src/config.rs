@@ -341,9 +341,7 @@ pub fn capitalize(s: &str) -> String {
 /// (script or region). This is the subset Typst's `text(lang: ...)` accepts.
 fn is_valid_lang(tag: &str) -> bool {
     let mut parts = tag.split('-');
-    let Some(lang) = parts.next() else {
-        return false;
-    };
+    let lang = parts.next().unwrap_or("");
     if !(2..=3).contains(&lang.len()) || !lang.chars().all(|c| c.is_ascii_lowercase()) {
         return false;
     }
@@ -417,6 +415,8 @@ title = "T"
         assert!(load(&MINIMAL.replace("[\"required\"]", "[]")).is_err());
         assert!(load(&MINIMAL.replace("[\"required\"]", "[\"a\", \"a\"]")).is_err());
         assert!(load(&MINIMAL.replace("[\"required\"]", "[\"a/b\"]")).is_err());
+        assert!(load(&MINIMAL.replace("[\"required\"]", "[\".\"]")).is_err());
+        assert!(load(&MINIMAL.replace("[\"required\"]", "[\"\"]")).is_err());
         assert!(
             load(&format!(
                 "{MINIMAL}\n[page]\nwidth_mm = 30\nmargin_x_mm = 20\n"
@@ -425,6 +425,7 @@ title = "T"
         );
         assert!(load(&format!("{MINIMAL}\n[images]\njpeg_quality = 0\n")).is_err());
         assert!(load(&format!("{MINIMAL}\n[images]\ndpi = 10\n")).is_err());
+        assert!(load(&format!("{MINIMAL}\n[contents]\ncolumns = 0\n")).is_err());
         assert!(load(&format!("{MINIMAL}\n[accessibility]\ntagged = false\n")).is_err());
         assert!(
             load(&format!(
@@ -434,6 +435,8 @@ title = "T"
         );
         assert!(load(&format!("{MINIMAL}\n[diagrams]\ncommand = \"\"\n")).is_err());
         assert!(load(&MINIMAL.replace("title = \"T\"", "title = \"\"")).is_err());
+        assert_eq!(capitalize(""), "");
+        assert!(!is_valid_lang("en-latn-us-extra"));
     }
 
     #[test]

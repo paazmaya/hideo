@@ -371,6 +371,17 @@ mod tests {
     }
 
     #[test]
+    fn test_heading_breaks() {
+        let p = page("Hello\nworld\n=====\n");
+        assert_eq!(p.headings[0].text, "Hello world");
+    }
+
+    #[test]
+    fn test_page_key_empty_fallback() {
+        assert_eq!(page_key("---.md"), "page");
+    }
+
+    #[test]
     fn test_same_heading_text_on_two_pages_gets_distinct_labels() {
         let a = page("## Setup\n");
         let mut b = page("## Setup\n");

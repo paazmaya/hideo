@@ -381,6 +381,13 @@ mod tests {
     }
 
     #[test]
+    fn test_table_empty_data() {
+        let d = TableData::default();
+        let l = plan(&d, W);
+        assert!(l.fractions.is_empty());
+    }
+
+    #[test]
     fn test_table_zwsp_lets_columns_shrink() {
         let url = break_long_tokens("https://example.com/a/very/long/path");
         let d = TableData {

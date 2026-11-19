@@ -270,12 +270,11 @@ impl<'a, 'l> Emitter<'a, 'l> {
         while let Some((event, _)) = self.events.get(self.pos).cloned() {
             let line = self.line_at(self.pos);
             match event {
-                Event::End(e) => {
+                Event::End(e) if Some(e) == end => {
                     self.pos += 1;
-                    if Some(e) == end {
-                        break;
-                    }
+                    break;
                 }
+                Event::End(_) => self.pos += 1,
                 Event::Start(tag) => {
                     self.pos += 1;
                     let block = self.block(tag, line);
@@ -293,9 +292,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
                     // Inline content at block level: tight list items have no paragraph.
                     let before = self.pos;
                     let text = self.inline(None, Position::LineStart);
-                    if self.pos == before {
-                        self.pos += 1; // guarantee progress
-                    }
+                    self.pos = self.pos.max(before + 1);
                     if !text.is_empty() {
                         push_block(&mut out, vec![Line::new(text, line)]);
                     }
@@ -309,13 +306,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
         match tag {
             Tag::Paragraph => self.paragraph(line),
             Tag::Heading { level, .. } => self.heading(level as u8, line),
-            Tag::BlockQuote(kind) => {
-                let inner = self.blocks(Some(TagEnd::BlockQuote(kind)));
-                let mut lines = vec![Line::new("#quote(block: true)[", line)];
-                lines.extend(inner);
-                lines.push(Line::new("]", line));
-                lines
-            }
+            Tag::BlockQuote(kind) => self.blockquote(kind, line),
             Tag::CodeBlock(kind) => self.code_block(kind, line),
             Tag::List(start) => self.list(start, line),
             Tag::Table(aligns) => self.table(aligns, line),
@@ -348,6 +339,18 @@ impl<'a, 'l> Emitter<'a, 'l> {
         }
     }
 
+    fn blockquote(
+        &mut self,
+        kind: Option<pulldown_cmark::BlockQuoteKind>,
+        line: usize,
+    ) -> Vec<Line> {
+        let inner = self.blocks(Some(TagEnd::BlockQuote(kind)));
+        let mut lines = vec![Line::new("#quote(block: true)[", line)];
+        lines.extend(inner);
+        lines.push(Line::new("]", line));
+        lines
+    }
+
     fn paragraph(&mut self, line: usize) -> Vec<Line> {
         if let Some(lines) = self.block_image(line) {
             return lines;
@@ -357,23 +360,21 @@ impl<'a, 'l> Emitter<'a, 'l> {
             .take(3)
             .map(|(e, _)| e.clone())
             .collect();
-        let (lead, start) = match detect_lead(&window) {
-            Some((text, consumed)) => {
-                let text = text.to_string();
-                self.pos += consumed;
-                (Some(text), Position::AfterExpr)
-            }
-            None => (None, Position::LineStart),
+        let (lead, start) = if let Some((text, consumed)) = detect_lead(&window) {
+            let text = text.to_string();
+            self.pos += consumed;
+            (Some(text), Position::AfterExpr)
+        } else {
+            (None, Position::LineStart)
         };
         let rest = self.inline(Some(TagEnd::Paragraph), start);
-        let text = match lead {
-            Some(label) => {
-                format!(
-                    "#lead[{}]{rest}",
-                    escape_text(label.trim_end(), Position::LineStart)
-                )
-            }
-            None => rest,
+        let text = if let Some(label) = lead {
+            format!(
+                "#lead[{}]{rest}",
+                escape_text(label.trim_end(), Position::LineStart)
+            )
+        } else {
+            rest
         };
         vec![Line::new(text, line)]
     }
@@ -414,20 +415,19 @@ impl<'a, 'l> Emitter<'a, 'l> {
     }
 
     fn image_markup(&mut self, dest: &str, alt: &str, line: usize) -> String {
-        match self.assets.body_image(self.page, dest, line) {
-            Some(path) => {
-                let alt = alt.trim();
-                if alt.is_empty() {
-                    format!("#hideo-image({}, alt: none)", typst_string(&path))
-                } else {
-                    format!(
-                        "#hideo-image({}, alt: {})",
-                        typst_string(&path),
-                        typst_string(alt)
-                    )
-                }
+        if let Some(path) = self.assets.body_image(self.page, dest, line) {
+            let alt = alt.trim();
+            if alt.is_empty() {
+                format!("#hideo-image({}, alt: none)", typst_string(&path))
+            } else {
+                format!(
+                    "#hideo-image({}, alt: {})",
+                    typst_string(&path),
+                    typst_string(alt)
+                )
             }
-            None => escape_text(alt, Position::LineStart),
+        } else {
+            escape_text(alt, Position::LineStart)
         }
     }
 
@@ -660,6 +660,19 @@ impl<'a, 'l> Emitter<'a, 'l> {
 
     // ---- inline -------------------------------------------------------------------------
 
+    fn flush_pending(
+        &mut self,
+        pending: &mut String,
+        out: &mut String,
+        position: &mut Position,
+    ) {
+        if !pending.is_empty() {
+            let text = std::mem::take(pending);
+            out.push_str(&self.escape_run(&text, *position));
+            *position = Position::Inline;
+        }
+    }
+
     /// Render inline content until `end` (consumed). With `end == None`, stop (without
     /// consuming) at the first `End` or block-level `Start`, which is how tight list items
     /// and the top level are handled.
@@ -668,32 +681,15 @@ impl<'a, 'l> Emitter<'a, 'l> {
         let mut pending = String::new();
         let mut position = start;
 
-        macro_rules! flush {
-            () => {
-                if !pending.is_empty() {
-                    let text = std::mem::take(&mut pending);
-                    out.push_str(&self.escape_run(&text, position));
-                    #[allow(unused_assignments)]
-                    {
-                        position = Position::Inline;
-                    }
-                }
-            };
-        }
-
         while let Some((event, _)) = self.events.get(self.pos).cloned() {
             let line = self.line_at(self.pos);
             match event {
-                Event::End(e) => {
-                    if end == Some(e) {
-                        self.pos += 1;
-                        break;
-                    }
-                    if end.is_none() {
-                        break;
-                    }
-                    self.pos += 1; // stray End inside a container: ignore
+                Event::End(e) if end == Some(e) => {
+                    self.pos += 1;
+                    break;
                 }
+                Event::End(_) if end.is_none() => break,
+                Event::End(_) => self.pos += 1, // stray End inside a container: ignore
                 Event::Start(ref tag) if end.is_none() && is_block_start(tag) => break,
                 Event::Text(t) => {
                     self.pos += 1;
@@ -705,13 +701,13 @@ impl<'a, 'l> Emitter<'a, 'l> {
                 }
                 Event::HardBreak => {
                     self.pos += 1;
-                    flush!();
+                    self.flush_pending(&mut pending, &mut out, &mut position);
                     out.push_str("#linebreak()");
                     position = Position::AfterExpr;
                 }
                 Event::Code(c) => {
                     self.pos += 1;
-                    flush!();
+                    self.flush_pending(&mut pending, &mut out, &mut position);
                     let mut code = c.to_string();
                     if self.in_table {
                         self.plain.push_str(&code);
@@ -747,7 +743,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
                 Event::Rule => break,
                 Event::Start(tag) => {
                     self.pos += 1;
-                    flush!();
+                    self.flush_pending(&mut pending, &mut out, &mut position);
                     let rendered = self.inline_tag(tag, line);
                     let is_expr = rendered.starts_with('#');
                     out.push_str(&rendered);
@@ -759,7 +755,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
                 }
             }
         }
-        flush!();
+        self.flush_pending(&mut pending, &mut out, &mut position);
         out
     }
 
@@ -788,23 +784,20 @@ impl<'a, 'l> Emitter<'a, 'l> {
             }
             Tag::Superscript => self.unsupported_inline("superscript", TagEnd::Superscript, line),
             Tag::Subscript => self.unsupported_inline("subscript", TagEnd::Subscript, line),
-            Tag::Link {
-                link_type,
-                dest_url,
-                ..
-            } => self.link(link_type, &dest_url, line),
-            Tag::Image { dest_url, .. } => {
-                let alt = self.collect_plain_text();
-                self.image_markup(&dest_url, &alt, line)
-            }
-            other => {
+            Tag::Link { link_type, dest_url, .. } => self.link(link_type, &dest_url, line),
+            Tag::Image { dest_url, .. } => self.inline_image(&dest_url, line),
+            _ => {
                 // Block-level tag in an inline context: not reachable with a well-formed
                 // event stream; skip it rather than loop.
-                let _ = other;
                 self.skip_container();
                 String::new()
             }
         }
+    }
+
+    fn inline_image(&mut self, dest: &str, line: usize) -> String {
+        let alt = self.collect_plain_text();
+        self.image_markup(dest, &alt, line)
     }
 
     fn unsupported_inline(&mut self, what: &str, end: TagEnd, line: usize) -> String {
@@ -1333,6 +1326,216 @@ Inline <b>html</b> is dropped with a warning.
         let start = std::time::Instant::now();
         let _ = emit(&body);
         assert!(start.elapsed().as_secs_f64() < 5.0, "{:?}", start.elapsed());
+    }
+
+    #[test]
+    fn test_diagram_alt_description_only() {
+        assert_eq!(
+            diagram_alt("", "accDescr: only desc\ngraph TD"),
+            Some("only desc".to_string())
+        );
+        assert_eq!(
+            diagram_alt("  \"custom alt\"  ", "graph TD"),
+            Some("custom alt".to_string())
+        );
+    }
+
+    #[test]
+    fn test_heading_level_6() {
+        assert!(md("###### Deep heading").starts_with("#heading(level: 6)"));
+    }
+
+    #[test]
+    fn test_empty_list_item() {
+        assert_eq!(md("- \n- a\n"), "-\n- a");
+    }
+
+    #[test]
+    fn test_table_with_code_and_overflow() {
+        let e = emit("| h |\n| --- |\n| `abc` |");
+        assert!(e.markup.text.contains("#raw(\"abc\")"));
+
+        let wide = "| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | cccccccccccccccccccccccccccccccccc | dddddddddddddddddddddddddddddddddd | eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee | ffffffffffffffffffffffffffffffffff |\n|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 |";
+        let e_wide = emit(wide);
+        assert!(e_wide.diag.warnings.iter().any(|w| w.code == WarningCode::W004));
+    }
+
+    #[test]
+    fn test_inline_image_and_formatted_alt() {
+        assert_eq!(
+            md("text before ![alt](img.png) text after"),
+            "text before #hideo-image(\"images/img.png\", alt: \"alt\") text after"
+        );
+        assert_eq!(
+            md("![**bold** alt\nbreak](img.png)"),
+            "#hideo-image(\"images/img.png\", alt: \"bold alt break\")"
+        );
+        assert_eq!(
+            md("![\t](img.png)"),
+            "#hideo-image(\"images/img.png\", alt: none)"
+        );
+    }
+
+    struct NoneAssetSink;
+    impl AssetSink for NoneAssetSink {
+        fn body_image(&mut self, _page: &Page, _dest: &str, _line: usize) -> Option<String> {
+            None
+        }
+        fn diagram(&mut self, _page: &Page, _source: &str, _line: usize) -> Option<String> {
+            None
+        }
+    }
+
+    #[test]
+    fn test_missing_image_sink_and_file_link() {
+        let p = page("![fallback](missing.png)");
+        let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
+        let e = emit_page(&p, &mut links, &mut NoneAssetSink, (453.5, 700.0));
+        assert_eq!(e.markup.text, "fallback");
+
+        // Resolved::File test
+        let dir = tempfile::tempdir().unwrap();
+        let t_dir = dir.path().join("t");
+        std::fs::create_dir_all(&t_dir).unwrap();
+        std::fs::write(t_dir.join("doc.pdf"), b"pdf").unwrap();
+        let p2 = page("[doc](doc.pdf)");
+        let mut links2 = LinkMap::new("t", std::slice::from_ref(&p2), [], dir.path());
+        let e2 = emit_page(&p2, &mut links2, &mut NoAssets, (453.5, 700.0));
+        assert_eq!(e2.markup.text, "#link(\"doc.pdf\")[doc]");
+    }
+
+    #[test]
+    fn test_tight_list_item_with_empty_inline() {
+        let e = emit("- <!-- comment -->\n- real\n");
+        assert!(e.markup.text.contains("- real"));
+    }
+
+    #[test]
+    fn test_emitter_edge_cases() {
+        let p = page("body text");
+        let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
+        let mut assets = NoAssets;
+        let mut emitter = Emitter::new(&p, &mut links, &mut assets, (453.5, 700.0));
+
+        // 1. line_at past end of events (line 183)
+        assert_eq!(emitter.line_at(9999), p.byte_to_line(p.body.len()));
+
+        // 2. heading with index past p.headings.len() (line 451)
+        emitter.heading_index = 100;
+        let h_lines = emitter.heading(1, 1);
+        assert!(h_lines[0].text.contains("<t-p--h100>"));
+
+        // 3. collect_plain_text with HardBreak and non-text event (line 239)
+        emitter.events = vec![
+            (Event::Text("word".into()), 0..4),
+            (Event::Rule, 4..5),
+            (Event::HardBreak, 5..6),
+            (Event::End(TagEnd::Emphasis), 6..7),
+        ];
+        emitter.pos = 0;
+        let text = emitter.collect_plain_text();
+        assert_eq!(text, "word ");
+
+        // 4. peek_plain_text with Start and _ (lines 251, 259)
+        emitter.events = vec![
+            (Event::Start(Tag::Emphasis), 0..1),
+            (Event::SoftBreak, 1..2),
+            (Event::End(TagEnd::Emphasis), 2..3),
+        ];
+        emitter.pos = 0;
+        let peeked = emitter.peek_plain_text();
+        assert_eq!(peeked, "");
+
+        // 5. inline with math, rule, stray End, block start (lines 695, 698, 740-748)
+        emitter.events = vec![
+            (Event::InlineMath("x".into()), 0..1),
+            (Event::DisplayMath("y".into()), 1..2),
+            (Event::End(TagEnd::Emphasis), 2..3),
+            (Event::Start(Tag::TableHead), 3..4),
+            (Event::End(TagEnd::TableHead), 4..5),
+            (Event::Rule, 5..6),
+        ];
+        emitter.pos = 0;
+        let _ = emitter.inline(Some(TagEnd::Paragraph), Position::LineStart);
+        assert!(emitter.diag.has_errors());
+
+        // 5b. inline stopping at block start when end is None (line 698)
+        emitter.events = vec![(Event::Start(Tag::Paragraph), 0..1)];
+        emitter.pos = 0;
+        let _ = emitter.inline(None, Position::LineStart);
+
+        // 6. code_block with non-text event (line 466)
+        emitter.events = vec![
+            (Event::SoftBreak, 0..1),
+            (Event::End(TagEnd::CodeBlock), 1..2),
+        ];
+        emitter.pos = 0;
+        let cb_lines = emitter.code_block(CodeBlockKind::Fenced("".into()), 1);
+        assert!(!cb_lines.is_empty());
+
+        // 7. html_block with non-html event (line 542)
+        emitter.events = vec![
+            (Event::Text("non-html".into()), 0..1),
+            (Event::End(TagEnd::HtmlBlock), 1..2),
+        ];
+        emitter.pos = 0;
+        let hb_lines = emitter.html_block(1);
+        assert!(hb_lines.is_empty());
+
+        // 8. list with non-item event and empty list (lines 573, 577)
+        emitter.events = vec![
+            (Event::SoftBreak, 0..1),
+            (Event::End(TagEnd::List(false)), 1..2),
+        ];
+        emitter.pos = 0;
+        let list_lines = emitter.list(None, 1);
+        assert_eq!(list_lines[0].text, "#[]");
+
+        // 9. table with non-cell event (line 622)
+        emitter.events = vec![
+            (Event::SoftBreak, 0..1),
+            (Event::End(TagEnd::Table), 1..2),
+        ];
+        emitter.pos = 0;
+        let tbl_lines = emitter.table(vec![], 1);
+        assert!(!tbl_lines.is_empty());
+
+        // 10. blocks with stray HTML outside container (lines 288, 290)
+        emitter.events = vec![(Event::Html("<div></div>".into()), 0..11)];
+        emitter.pos = 0;
+        let blk_lines = emitter.blocks(None);
+        assert!(blk_lines.is_empty());
+
+        // 11. metadata block in blocks (lines 334-336)
+        emitter.events = vec![(Event::End(TagEnd::MetadataBlock(pulldown_cmark::MetadataBlockKind::YamlStyle)), 0..1)];
+        emitter.pos = 0;
+        let meta_lines = emitter.block(Tag::MetadataBlock(pulldown_cmark::MetadataBlockKind::YamlStyle), 1);
+        assert!(meta_lines.is_empty());
+
+        // 12. block with inline tag rendering empty (line 343)
+        emitter.events = vec![
+            (Event::End(TagEnd::TableCell), 0..1),
+        ];
+        emitter.pos = 1;
+        let empty_inline_block = emitter.block(Tag::TableCell, 1);
+        assert!(empty_inline_block.is_empty());
+
+        // 13. blockquote with kind (line 312)
+        assert_eq!(md("> [!NOTE]\n> alert\n"), "#quote(block: true)[\n\\[!NOTE\\] alert\n]");
+        emitter.events = vec![
+            (Event::End(TagEnd::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note))), 0..1),
+        ];
+        emitter.pos = 0;
+        let bq = emitter.block(Tag::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note)), 1);
+        assert!(!bq.is_empty());
+
+        // 14. blocks with mismatched End event (line 273)
+        emitter.events = vec![
+            (Event::End(TagEnd::Emphasis), 0..1),
+            (Event::End(TagEnd::Item), 1..2),
+        ];
+        emitter.pos = 0;
+        let _ = emitter.blocks(Some(TagEnd::Item));
     }
 
     // ---- property: link destinations never produce uncompilable Typst (plan 8.3) ---------

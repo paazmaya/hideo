@@ -14,18 +14,17 @@ pub const MAX_LEAD_CHARS: usize = 40;
 /// containing code, links or other inline elements does not qualify, and `**A** **B.**` is two
 /// separate strong runs, of which only the first is looked at.
 pub fn detect_lead<'a>(events: &'a [Event<'a>]) -> Option<(&'a str, usize)> {
-    match events {
-        [
-            Event::Start(Tag::Strong),
-            Event::Text(text),
-            Event::End(TagEnd::Strong),
-            ..,
-        ] => {
-            let trimmed = text.trim_end();
-            let ends_ok = trimmed.ends_with('.') || trimmed.ends_with(':');
-            (ends_ok && text.chars().count() <= MAX_LEAD_CHARS).then_some((&**text, 3))
-        }
-        _ => None,
+    if let (
+        Some(Event::Start(Tag::Strong)),
+        Some(Event::Text(text)),
+        Some(Event::End(TagEnd::Strong)),
+    ) = (events.first(), events.get(1), events.get(2))
+    {
+        let trimmed = text.trim_end();
+        let ends_ok = trimmed.ends_with('.') || trimmed.ends_with(':');
+        (ends_ok && text.chars().count() <= MAX_LEAD_CHARS).then_some((&**text, 3))
+    } else {
+        None
     }
 }
 

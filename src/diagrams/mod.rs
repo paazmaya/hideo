@@ -738,4 +738,59 @@ classDiagram
         assert_eq!(v["htmlLabels"], false);
         assert_eq!(v["flowchart"]["htmlLabels"], false);
     }
+
+    #[test]
+    fn test_theme_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid_path = dir.path().join("theme.json");
+        std::fs::write(&valid_path, "{\"key\": \"val\"}").unwrap();
+        assert!(Theme::from_file(&valid_path).is_ok());
+
+        let invalid_path = dir.path().join("bad.json");
+        std::fs::write(&invalid_path, "not json").unwrap();
+        assert!(Theme::from_file(&invalid_path).is_err());
+
+        let missing = dir.path().join("missing.json");
+        assert!(Theme::from_file(&missing).is_err());
+    }
+
+    #[test]
+    fn test_check_svg_unclosed_comment_and_doctype() {
+        assert!(matches!(check_svg("<!-- unclosed"), Err(DiagramError::InvalidSvg)));
+        assert!(matches!(check_svg("<!DOCTYPE unclosed"), Err(DiagramError::InvalidSvg)));
+    }
+
+    #[test]
+    fn test_font_problems_syntax_variants() {
+        assert!(font_problems("<text font-family x>").is_empty());
+        assert!(font_problems("<text font-family=Arial>").is_empty());
+    }
+
+    #[test]
+    fn test_routing_renderer_cache_id() {
+        struct MockBackend;
+        impl DiagramRenderer for MockBackend {
+            fn render(&self, _s: &str, _t: &Theme) -> Result<String, DiagramError> {
+                Ok("<svg></svg>".into())
+            }
+            fn name(&self) -> String { "mock".into() }
+            fn cache_id(&self) -> String { "id1".into() }
+        }
+        let r = RoutingRenderer {
+            primary: Box::new(MockBackend),
+            fallback: Box::new(MockBackend),
+            kinds: vec!["k1".into()],
+        };
+        assert!(r.cache_id().contains("routing[k1]"));
+    }
+
+    #[test]
+    fn test_render_all_font_warning() {
+        let mut c = DiagramCollector::default();
+        c.request("p.md", 1, "graph A");
+        let r = fake(|_| Ok("<svg><text font-family=\"Arial\">x</text></svg>".into()));
+        let out = render_all(&c, &r, &Theme::embedded(), None);
+        assert_eq!(out.warnings.len(), 1);
+        assert_eq!(out.warnings[0].code, WarningCode::W010);
+    }
 }

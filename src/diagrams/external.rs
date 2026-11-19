@@ -205,6 +205,16 @@ mod tests {
     }
 
     #[test]
+    fn nonzero_exit_reports_stdout_tail_when_stderr_empty() {
+        let (_dir, r) = script(
+            "echo stdout-failure; exit 3",
+            "echo stdout-failure\r\nexit /b 3",
+        );
+        let text = r.render("x", &Theme::embedded()).unwrap_err().to_string();
+        assert!(text.contains("stdout-failure"), "{text}");
+    }
+
+    #[test]
     fn success_without_output_file_is_an_error() {
         let (_dir, r) = script("exit 0", "exit /b 0");
         let text = r.render("x", &Theme::embedded()).unwrap_err().to_string();

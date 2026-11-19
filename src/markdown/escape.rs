@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn string_literal_escapes() {
-        assert_eq!(typst_string("a\"b\\c\nd\te"), r#""a\"b\\c\nd\te""#);
+        assert_eq!(typst_string("a\"b\\c\n\rd\te"), r#""a\"b\\c\n\rd\te""#);
         assert_eq!(typst_string("\u{1}"), r#""\u{1}""#);
     }
 

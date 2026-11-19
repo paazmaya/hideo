@@ -139,14 +139,10 @@ pub fn run(config: &Config, options: &Options) -> Outcome {
                     summary.pdf = Some(path);
                     summary.pdf_pages = Some(pages);
                     outcome.stats.pdfs += 1;
-                    for w in warnings {
-                        prepared.diag.add_warning(w);
-                    }
+                    prepared.diag.warnings.extend(warnings);
                 }
                 Err(errors) => {
-                    for e in errors {
-                        prepared.diag.add_error(e);
-                    }
+                    prepared.diag.errors.extend(errors);
                 }
             }
         }
@@ -762,4 +758,489 @@ fn keep_typst(dir: &Utf8Path, files: &BTreeMap<String, Vec<u8>>) -> std::io::Res
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_config() -> Config {
+        Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new("tests/fixtures/minimal"),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_generate_variants() {
+        let cfg = minimal_config();
+        let opt = Options {
+            source_dir: Utf8PathBuf::from("tests/fixtures/minimal"),
+            tiers: vec!["required".into()],
+            mode: Mode::Check,
+            verbose: false,
+        };
+        // Mode::Check
+        assert!(generate(&cfg, &opt, "required").is_some());
+        // Nonexistent tier
+        assert!(generate(&cfg, &opt, "nonexistent").is_none());
+
+        // Discovery error
+        let dir = tempfile::tempdir().unwrap();
+        let bad_opt = Options {
+            source_dir: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            tiers: vec!["required".into()],
+            mode: Mode::Check,
+            verbose: false,
+        };
+        let bad_cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(req_dir.join("p.md"), "---\nhero: h\n---\nx").unwrap(); // missing title
+        assert!(generate(&bad_cfg, &bad_opt, "required").is_none());
+    }
+
+    #[test]
+    fn test_check_glyph_coverage() {
+        let mut diag = DiagnosticCollector::default();
+        let src_title = SourcePage {
+            tier: "t".into(),
+            rel_path: "p.md".into(),
+            abs_path: Utf8PathBuf::from("p.md"),
+            frontmatter: crate::frontmatter::Frontmatter {
+                title: Some("日本語".into()),
+                hero: Some("h.png".into()),
+                ..Default::default()
+            },
+            body: "ascii".into(),
+        };
+        let page_title = Page::build(src_title, "t-p".into()).unwrap();
+        check_glyph_coverage(&page_title, &mut diag);
+        assert_eq!(diag.warnings.len(), 1);
+        assert_eq!(diag.warnings[0].code, WarningCode::W011);
+
+        let mut diag2 = DiagnosticCollector::default();
+        let src_body = SourcePage {
+            tier: "t".into(),
+            rel_path: "p.md".into(),
+            abs_path: Utf8PathBuf::from("p.md"),
+            frontmatter: crate::frontmatter::Frontmatter {
+                title: Some("Title".into()),
+                hero: Some("h.png".into()),
+                ..Default::default()
+            },
+            body: "line with 日本語".into(),
+        };
+        let page_body = Page::build(src_body, "t-p2".into()).unwrap();
+        check_glyph_coverage(&page_body, &mut diag2);
+        assert_eq!(diag2.warnings.len(), 1);
+        assert_eq!(diag2.warnings[0].code, WarningCode::W011);
+    }
+
+    #[test]
+    fn test_diagram_renderer_off() {
+        let cfg = minimal_config();
+        assert!(diagram_renderer(&cfg, DiagramBackendConfig::Off).is_err());
+    }
+
+    #[test]
+    fn test_prepare_tier_edge_cases() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_test.md"),
+            "---\ntitle: Page\nhero: corrupt.png\n---\n\
+             ![remote](https://example.com/pic.png)\n\
+             ![missing](missing.png)\n\
+             ![corrupt](corrupt.png)\n\
+             ```mermaid\ngraph TD\nA-->B\n```\n",
+        )
+        .unwrap();
+        std::fs::write(req_dir.join("corrupt.png"), b"not an image").unwrap();
+        std::fs::write(dir.path().join("cover_front_required.png"), b"bad cover").unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n\
+             [book]\nlang=\"en\"\n\
+             [cover]\ntitle=\"T\"\n\
+             [images]\n\
+             contents_hero = \"contents.png\"\n\
+             cover_pattern = \"cover_front_{tier}.png\"\n\
+             [diagrams]\n\
+             theme = \"bad_theme.json\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        std::fs::write(dir.path().join("bad_theme.json"), "invalid json").unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let out_dir = dir.path().join("out");
+        let opt = Options {
+            source_dir: root.clone(),
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(out_dir).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::External,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.has_errors());
+        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E007));
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("remote")));
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("not found")));
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cannot be used")));
+    }
+
+    #[test]
+    fn test_duplicate_heading_in_prepare_tier() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_dup.md"),
+            "---\ntitle: Dup\nhero: h.png\n---\n## H1 {#dup}\n## H2 {#dup}\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Check,
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E003));
+    }
+
+    #[test]
+    fn test_keep_typst_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocking_file = dir.path().join("blocking_file");
+        std::fs::write(&blocking_file, b"file").unwrap();
+        let mut files = BTreeMap::new();
+        files.insert("test.typ".to_string(), b"hello".to_vec());
+        let res = keep_typst(
+            &Utf8PathBuf::from_path_buf(blocking_file.join("sub")).unwrap(),
+            &files,
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_compile_tier_failure_in_build_book() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_test.md"),
+            "---\ntitle: Page\nhero: h.png\n---\nBody\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let file_as_dir = dir.path().join("file_output");
+        std::fs::write(&file_as_dir, b"block").unwrap();
+
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(file_as_dir).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_diagram_renderer_native_unsupported() {
+        let cfg = minimal_config();
+        #[cfg(not(feature = "native-diagrams"))]
+        assert!(diagram_renderer(&cfg, DiagramBackendConfig::Native).is_err());
+    }
+
+    #[test]
+    fn test_check_mode_missing_cover_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_test.md"),
+            "---\ntitle: Page\nhero: h.png\n---\nBody\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Check,
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cover image")));
+    }
+
+    #[test]
+    fn test_contents_hero_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_test.md"),
+            "---\ntitle: Page\nhero: h.png\n---\nBody\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("contents.png"), b"not valid image").unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n[images]\ncontents_hero = \"contents.png\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let out_dir = dir.path().join("out");
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(out_dir).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("contents image `contents.png` cannot be used")));
+    }
+
+    #[test]
+    fn test_compile_tier_keep_typst_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocking = dir.path().join("blocking");
+        std::fs::write(&blocking, b"file").unwrap();
+        let cfg = minimal_config();
+        let build = BuildOptions {
+            output: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            keep_typst: Some(Utf8PathBuf::from_path_buf(blocking.join("sub")).unwrap()),
+            diagrams: DiagramBackendConfig::Off,
+            today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+        };
+        let mut prepared = Prepared {
+            pages: Vec::new(),
+            files: BTreeMap::new(),
+            maps: SourceMaps::new(),
+            diag: DiagnosticCollector::default(),
+            image_count: 0,
+            diagram_count: 0,
+            unresolved: vec![],
+        };
+        prepared.files.insert("main.typ".into(), b"#set document(title: \"T\")".to_vec());
+        let res = compile_tier(&cfg, &build, "required", &prepared);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_compile_tier_warnings_in_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = minimal_config();
+        let build = BuildOptions {
+            output: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            keep_typst: None,
+            diagrams: DiagramBackendConfig::Off,
+            today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+        };
+        let mut prepared = Prepared {
+            pages: Vec::new(),
+            files: BTreeMap::new(),
+            maps: SourceMaps::new(),
+            diag: DiagnosticCollector::default(),
+            image_count: 0,
+            diagram_count: 0,
+            unresolved: vec![],
+        };
+        prepared.files.insert(
+            "main.typ".into(),
+            b"#set page(paper: \"a4\")\n#set document(title: \"T\")\n#show page: it => it\nHello\n".to_vec(),
+        );
+        let res = compile_tier(&cfg, &build, "required", &prepared).unwrap();
+        assert!(!res.2.is_empty());
+    }
+
+    #[test]
+    fn test_compile_tier_missing_main_typ() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = minimal_config();
+        let build = BuildOptions {
+            output: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            keep_typst: None,
+            diagrams: DiagramBackendConfig::Off,
+            today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+        };
+        let prepared = Prepared {
+            pages: Vec::new(),
+            files: BTreeMap::new(),
+            maps: SourceMaps::new(),
+            diag: DiagnosticCollector::default(),
+            image_count: 0,
+            diagram_count: 0,
+            unresolved: vec![],
+        };
+        let res = compile_tier(&cfg, &build, "required", &prepared);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_diagram_native_error_in_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_diagram.md"),
+            "---\ntitle: Dia\nhero: h.png\n---\n```mermaid\ngraph TD\nA-->B\n```\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let out_dir = dir.path().join("out");
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(out_dir).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Native,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        #[cfg(not(feature = "native-diagrams"))]
+        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E007));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_check_mode_unreadable_image() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_test.md"),
+            "---\ntitle: Page\nhero: h.png\n---\nBody\n",
+        )
+        .unwrap();
+        let images_dir = dir.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+        let cover_path = images_dir.join("cover_front_required.png");
+        std::fs::write(&cover_path, b"data").unwrap();
+        std::fs::set_permissions(&cover_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Check,
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cannot be used")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_diagram_font_warning_in_build() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        std::fs::create_dir_all(&req_dir).unwrap();
+        std::fs::write(
+            req_dir.join("01_diag.md"),
+            "---\ntitle: Dia\nhero: h.png\n---\n```mermaid\ngraph TD\nA-->B\n```\n",
+        )
+        .unwrap();
+
+        let script = dir.path().join("mock_mmdc.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf '<svg><text font-family=\"Arial\">x</text></svg>' > \"$1\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let cfg = Config::from_toml(
+            &format!(
+                "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n[diagrams]\ncommand=\"{}\"\nargs=[\"{{output}}\"]\n",
+                script.display()
+            ),
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        let out_dir = dir.path().join("out");
+        let opt = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(out_dir).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::External,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.warnings.iter().any(|w| w.code == WarningCode::W010));
+    }
 }

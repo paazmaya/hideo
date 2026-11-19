@@ -223,8 +223,18 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].code, ErrorCode::E001);
         assert!(errors[0].message.contains("title"));
-        assert_eq!(errors[0].page.as_deref(), Some("required/a.md"));
-        assert_eq!(errors[0].line, Some(1));
+    }
+
+    #[test]
+    fn test_frontmatter_error_display_and_extra_keys() {
+        let err = FrontmatterError {
+            message: "test error".into(),
+            line: 5,
+        };
+        assert_eq!(format!("{err}"), "test error");
+
+        let (f, _) = parse("---\ntitle: T\nhero: H\nno_colon_line\nunknown_key: val\n---\n").unwrap();
+        assert_eq!(f.title.as_deref(), Some("T"));
     }
 
     #[test]

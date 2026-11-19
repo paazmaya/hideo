@@ -201,3 +201,50 @@ impl DiagnosticCollector {
 #[derive(Debug, Error)]
 #[error("{0}")]
 pub struct ConfigError(pub String);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_and_warning_render() {
+        let e1 = HideoError::new(ErrorCode::E001, "msg").with_location("page.md", 12);
+        assert_eq!(format!("{e1}"), "error[E001]: page.md:12: msg");
+
+        let e2 = HideoError::new(ErrorCode::E002, "msg").with_page("page.md");
+        assert_eq!(format!("{e2}"), "error[E002]: page.md: msg");
+
+        let e3 = HideoError::new(ErrorCode::E003, "msg");
+        assert_eq!(format!("{e3}"), "error[E003]: msg");
+
+        let w1 = Warning::new(WarningCode::W001, "warn").with_location("page.md", 5);
+        assert_eq!(format!("{w1}"), "warning[W001]: page.md:5: warn");
+
+        let w2 = Warning::new(WarningCode::W002, "warn").with_page("page.md");
+        assert_eq!(format!("{w2}"), "warning[W002]: page.md: warn");
+
+        let w3 = Warning::new(WarningCode::W003, "warn");
+        assert_eq!(format!("{w3}"), "warning[W003]: warn");
+
+        let w4 = Warning::new(WarningCode::W004, "warn").with_line(8);
+        assert_eq!(format!("{w4}"), "warning[W004]: warn");
+    }
+
+    #[test]
+    fn test_diagnostic_collector_extend_and_sort() {
+        let mut d1 = DiagnosticCollector::default();
+        d1.add_error(HideoError::new(ErrorCode::E002, "b").with_location("b.md", 2));
+        d1.add_warning(Warning::new(WarningCode::W002, "b").with_location("b.md", 2));
+        assert!(d1.has_errors());
+
+        let mut d2 = DiagnosticCollector::default();
+        d2.add_error(HideoError::new(ErrorCode::E001, "a").with_location("a.md", 1));
+        d2.add_warning(Warning::new(WarningCode::W001, "a").with_location("a.md", 1));
+
+        d1.extend(d2);
+        assert_eq!(d1.errors.len(), 2);
+        d1.sort();
+        assert_eq!(d1.errors[0].message, "a");
+        assert_eq!(d1.warnings[0].message, "a");
+    }
+}

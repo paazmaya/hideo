@@ -275,9 +275,55 @@ mod tests {
 
     #[test]
     fn test_invalid_source_date_epoch_exits_2() {
-        for bad in ["", "abc", "1.5", "99999999999999999999"] {
+        for bad in ["", "abc", "1.5", "99999999999999999999", &i64::MAX.to_string()] {
             assert!(source_date(Some(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn test_map_warning() {
+        let mut files = BTreeMap::new();
+        files.insert(
+            "main.typ".into(),
+            b"#set page(paper: \"a4\")".to_vec(),
+        );
+        let dt = Datetime::from_ymd(2025, 1, 1).unwrap();
+        let world = HideoWorld::new(&files, dt).unwrap();
+        let maps = SourceMaps::new();
+        let diag = SourceDiagnostic::warning(typst::syntax::Span::detached(), "test warning");
+        let w = map_warning(&world, &maps, &diag);
+        assert_eq!(w.code, WarningCode::W010);
+        assert!(w.message.contains("test warning"));
+    }
+
+    #[test]
+    fn test_compile_pdf_with_typst_warning() {
+        let mut files = BTreeMap::new();
+        files.insert(
+            "main.typ".into(),
+            b"#set page(paper: \"a4\")\n#set document(title: \"T\")\n#show page: it => it\n#show par: set block(spacing: 10pt)\nHello\n".to_vec(),
+        );
+        let dt = Datetime::from_ymd(2025, 1, 1).unwrap();
+        let world = HideoWorld::new(&files, dt).unwrap();
+        let maps = SourceMaps::new();
+
+        let settings = PdfSettings {
+            tagged: false,
+            pdf_ua: false,
+            timestamp: dt,
+            warnings_as_errors: false,
+        };
+        let res = compile_pdf(&world, &maps, &settings).unwrap();
+        assert_eq!(res.warnings.len(), 2);
+
+        let settings_err = PdfSettings {
+            tagged: false,
+            pdf_ua: false,
+            timestamp: dt,
+            warnings_as_errors: true,
+        };
+        let res_err = compile_pdf(&world, &maps, &settings_err);
+        assert!(res_err.is_err());
     }
 
     #[test]

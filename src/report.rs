@@ -221,6 +221,16 @@ mod tests {
             format_warning(&r.warnings[0]),
             "warning[W003]: b.md: hero missing\n"
         );
+        let warn_no_page = ReportItem {
+            code: "W002".into(),
+            page: None,
+            line: None,
+            message: "general warning".into(),
+        };
+        assert_eq!(
+            format_warning(&warn_no_page),
+            "warning[W002]: general warning\n"
+        );
         let mut loud = Vec::new();
         write_text(&mut loud, &r, &[link()], false).unwrap();
         let loud = String::from_utf8(loud).unwrap();
