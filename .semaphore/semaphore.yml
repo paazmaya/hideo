@@ -3,7 +3,7 @@
 # Machine types: the organization is on the open source plan, which offers the e1 Linux machines
 # (https://docs.semaphore.io/reference/machine-types lists f1 as current, but f1 is refused here).
 # Minutes are saved by doing the Linux work in one job that shares one `target` cache, and by
-# running the expensive macOS and ARM jobs only on `main` and on tags.
+# running the expensive macOS job only on `main` and on tags.
 version: v1.0
 name: hideo
 agent:
@@ -96,28 +96,8 @@ blocks:
             - rustup toolchain install 1.92 --profile minimal
             - cargo +1.92 check --locked
 
-  # The two blocks below only run on `main` and on tags: macOS minutes cost twelve times a Linux
+  # The block below only run on `main` and on tags: macOS minutes cost twelve times a Linux
   # minute, and Linux x86_64 already covers every branch.
-  - name: Test (Linux ARM)
-    run:
-      when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
-    task:
-      agent:
-        machine:
-          type: r1-standard-2
-          os_image: ubuntu2404
-      prologue:
-        commands:
-          - cache restore target-arm-$(checksum Cargo.lock),target-arm
-      jobs:
-        - name: cargo test
-          commands:
-            - cargo test --locked
-      epilogue:
-        on_pass:
-          commands:
-            - cache has_key target-arm-$(checksum Cargo.lock) || (cache delete target-arm || true; cache store target-arm-$(checksum Cargo.lock),target-arm target)
-
   - name: Test (macOS)
     run:
       when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"

@@ -13,21 +13,16 @@ Usage and behaviour are described in [README.md](README.md).
       none of them.
 - [ ] The log shows `rustc -V`. If Rust is preinstalled on the image, delete the rustup install line from
       the prologue of both Semaphore files (`rust-toolchain.toml` picks the toolchain either way).
-- [ ] Every machine type is accepted. The organization is on the open source plan and refused `f1-standard-2`,
-      so the Linux x86 jobs use `e1-standard-2` (2 vCPU, 4 GB, 25 GB disk). Confirm that `r1-standard-2`
-      (ARM) and `a2-standard-4` (macOS) are accepted too; if one is refused, drop its block or ask Semaphore
-      support to enable it. `os_image: macos-xcode26` is unconfirmed; correct it from the workflow editor if
-      Semaphore rejects it. Try `e1-standard-4` if the Linux job is too slow or runs out of memory.
 - [ ] The Linux block (fmt, clippy, test, fixture built twice with identical PDFs), MSRV (Rust 1.92), and, on
-      `main` and tags, Test (Linux ARM) and Test (macOS) all pass.
+      `main` and tags, and Test (macOS) all pass.
 - [ ] The `cache delete` plus `cache store` pattern with a fallback key works: a second run with a changed
       `Cargo.lock` restores the fallback copy and recompiles only what changed.
 - [ ] The "Dependencies" block (a separate cheap job, no compile) installs `cargo-deny` with `cargo binstall` and `cargo deny check` passes. If
       the binstall install script fails on the image, fall back to `cargo install cargo-deny --locked`.
-- [ ] Compare the cost of restoring and storing the `target` caches (Linux, ARM, macOS) with the compile time
+- [ ] Compare the cost of restoring and storing the `target` caches (Linux, macOS) with the compile time
       they save. If one costs more, keep only the registry cache for that platform.
 - [ ] Check the minutes used per push against the open source plan's allowance, and revisit the rule that
-      limits the ARM and macOS jobs to `main` and tags.
+      limits the macOS job to `main` and tags.
 - [ ] The README badge reads "passing".
 
 ### AppVeyor (`appveyor.yml`)
