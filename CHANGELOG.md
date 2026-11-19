@@ -6,7 +6,7 @@ It follows the guidance from https://keepachangelog.com/en/1.0.0/.
 ## Unreleased `v0.1.0` (2026-11-20)
 
 The project is rewritten in Rust (the previous Node.js implementation was removed in
-`a4405d4`). See [PLAN.md](PLAN.md) for the design.
+`a4405d4`).
 
 ### Added
 

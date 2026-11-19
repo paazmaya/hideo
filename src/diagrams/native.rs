@@ -4,8 +4,6 @@
 //! theme as the external backend is loaded through the crate's own config loader, which only
 //! reads the keys it has fields for. `render_strict` turns unsupported syntax into an error
 //! instead of a silently wrong picture.
-//!
-//! The M7 gate result for this backend is recorded in PLAN.md.
 
 use mermaid_rs_renderer::config::load_config;
 use mermaid_rs_renderer::{RenderOptions, render_strict};
@@ -138,7 +136,7 @@ mod tests {
     #[test]
     fn m7_gate_report() {
         // Not an assertion about quality: it records, per diagram type, whether the native
-        // backend renders and satisfies the post-conditions. The result is in PLAN.md.
+        // backend renders and satisfies the post-conditions.
         let renderer = NativeRenderer::new();
         let theme = Theme::embedded();
         for (name, source) in SAMPLES {

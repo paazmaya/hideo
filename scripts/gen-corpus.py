@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate a large synthetic book for the performance check (plan 8.4, M8).
+"""Generate a large synthetic book for the performance check.
 
     python scripts/gen-corpus.py OUT_DIR [--pages 230] [--image-mb 1.1] [--diagrams 120]
 
 The corpus has 3 tiers, one hero image per page (about 1 MB each, so about 260 MB for 230
 pages), headings, lists, code, a table per page, and optional Mermaid flowcharts. It is not run
-on every push; see PLAN.md M8 for the measured numbers.
+on every push.
 """
 import argparse
 import os

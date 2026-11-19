@@ -1,13 +1,20 @@
 # https://docs.semaphore.io/reference/pipeline-yaml
+#
+# Machine types: the organization is on the open source plan, which offers the e1 Linux machines
+# (https://docs.semaphore.io/reference/machine-types lists f1 as current, but f1 is refused here).
+# Minutes are saved by doing the Linux work in one job that shares one `target` cache, and by
+# running the expensive macOS and ARM jobs only on `main` and on tags.
 version: v1.0
 name: hideo
 agent:
   machine:
-    type: f1-standard-2
+    type: e1-standard-2
     os_image: ubuntu2404
 
 auto_cancel:
   running:
+    when: "branch != 'main'"
+  queued:
     when: "branch != 'main'"
 
 fail_fast:
@@ -19,6 +26,10 @@ global_job_config:
     - name: CARGO_TERM_COLOR
       value: always
     - name: CARGO_INCREMENTAL
+      value: "0"
+    # No debug info: the debug `target` is 2 GB instead of 4.9 GB, which matters for the cache,
+    # the 25 GB disk and the 4 GB of memory of an e1-standard-2. Compile time is the same.
+    - name: CARGO_PROFILE_DEV_DEBUG
       value: "0"
   prologue:
     commands:
@@ -32,18 +43,36 @@ global_job_config:
   epilogue:
     on_pass:
       commands:
-        - cache has_key cargo-registry-$(checksum Cargo.lock) || cache store cargo-registry-$(checksum Cargo.lock) ~/.cargo/registry
+        # Cache keys are never overwritten. The checksum key is stored once per Cargo.lock; the
+        # plain fallback key is deleted first so that it always points at the newest copy.
+        - cache has_key cargo-registry-$(checksum Cargo.lock) || (cache delete cargo-registry || true; cache store cargo-registry-$(checksum Cargo.lock),cargo-registry ~/.cargo/registry)
 
 blocks:
-  - name: Lint
+  # fmt, clippy, tests and the reproducibility check share one machine and one `target` directory,
+  # so Typst is compiled once. The binary for the reproducibility check is the one `cargo test`
+  # builds; the release profile is built by the release pipeline for tags.
+  - name: Linux x86_64 (lint, test, reproducibility)
     run:
       when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
+      prologue:
+        commands:
+          - cache restore target-linux-$(checksum Cargo.lock),target-linux
       jobs:
-        - name: fmt and clippy
+        - name: fmt, clippy, test, build the fixture twice
           commands:
             - cargo fmt --all --check
             - cargo clippy --all-targets --locked -- -D warnings
+            - cargo test --locked
+            - export SOURCE_DATE_EPOCH=1700000000
+            - ./target/debug/hideo build --input tests/fixtures/full --output out1 --jobs 1
+            - ./target/debug/hideo build --input tests/fixtures/full --output out2 --jobs 4
+            - for f in out1/*.pdf; do cmp "$f" "out2/$(basename "$f")"; done
+            - artifact push workflow out1 --destination fixture-pdfs
+      epilogue:
+        on_pass:
+          commands:
+            - cache has_key target-linux-$(checksum Cargo.lock) || (cache delete target-linux || true; cache store target-linux-$(checksum Cargo.lock),target-linux target)
 
   - name: Dependencies (licenses and advisories)
     run:
@@ -57,22 +86,6 @@ blocks:
             - cargo binstall --no-confirm --locked cargo-deny
             - cargo deny check
 
-  - name: Test (Linux x86_64)
-    run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
-    task:
-      prologue:
-        commands:
-          - cache restore target-linux-$(checksum Cargo.lock),target-linux
-      jobs:
-        - name: cargo test
-          commands:
-            - cargo test --locked
-      epilogue:
-        on_pass:
-          commands:
-            - cache has_key target-linux-$(checksum Cargo.lock) || cache store target-linux-$(checksum Cargo.lock) target
-
   - name: MSRV (Rust 1.92)
     run:
       when: "change_in(['/src/', '/Cargo.toml', '/Cargo.lock', '/.semaphore/'], {default_branch: 'main'})"
@@ -83,46 +96,47 @@ blocks:
             - rustup toolchain install 1.92 --profile minimal
             - cargo +1.92 check --locked
 
+  # The two blocks below only run on `main` and on tags: macOS minutes cost twelve times a Linux
+  # minute, and Linux x86_64 already covers every branch.
   - name: Test (Linux ARM)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
+      when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       agent:
         machine:
           type: r1-standard-2
           os_image: ubuntu2404
+      prologue:
+        commands:
+          - cache restore target-arm-$(checksum Cargo.lock),target-arm
       jobs:
         - name: cargo test
           commands:
             - cargo test --locked
+      epilogue:
+        on_pass:
+          commands:
+            - cache has_key target-arm-$(checksum Cargo.lock) || (cache delete target-arm || true; cache store target-arm-$(checksum Cargo.lock),target-arm target)
 
   - name: Test (macOS)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
+      when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       agent:
         machine:
           type: a2-standard-4
           os_image: macos-xcode26
+      prologue:
+        commands:
+          - cache restore target-macos-$(checksum Cargo.lock),target-macos
       jobs:
         - name: cargo test
           commands:
             - cargo test --locked
-
-  - name: Release build and end-to-end
-    run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
-    task:
-      jobs:
-        - name: build, build fixture twice, compare
+      epilogue:
+        on_pass:
           commands:
-            - cargo build --release --locked
-            - export SOURCE_DATE_EPOCH=1700000000
-            - ./target/release/hideo build --input tests/fixtures/full --output out1 --jobs 1
-            - ./target/release/hideo build --input tests/fixtures/full --output out2 --jobs 4
-            - for f in out1/*.pdf; do cmp "$f" "out2/$(basename "$f")"; done
-            - artifact push workflow target/release/hideo
-            - artifact push workflow out1 --destination fixture-pdfs
+            - cache has_key target-macos-$(checksum Cargo.lock) || (cache delete target-macos || true; cache store target-macos-$(checksum Cargo.lock),target-macos target)
 
 promotions:
   - name: Release

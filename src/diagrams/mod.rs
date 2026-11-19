@@ -212,7 +212,7 @@ pub fn diagram_kind(source: &str) -> &str {
     ""
 }
 
-/// Diagram types the native backend renders well enough for the book (M7 gate, PLAN.md):
+/// Diagram types the native backend renders well enough for the book:
 /// the other types go to the fallback renderer. Sequence diagrams (grey, off-theme participant
 /// boxes) and class diagrams (members run together on one line) lost the side-by-side comparison
 /// with `mmdc` 12.2 and stay with the external renderer.

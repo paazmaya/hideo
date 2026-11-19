@@ -1,6 +1,5 @@
 // hideo template. Embedded in the binary; the double-brace tokens below are filled from the configuration.
 // Imported by the generated main.typ and by every generated page as `/template.typ`.
-// Visual specification: PLAN.md Appendix B. Accessibility notes: PLAN.md 7.10.
 
 #let margin-x = {{MARGIN_X_MM}}mm
 #let margin-y = {{MARGIN_Y_MM}}mm

@@ -17,7 +17,7 @@ Mermaid diagrams, and an **accessible, tagged PDF that is validated
 against [PDF/UA-1](https://pdfa.org/resource/iso-14289-pdfua/)** on every build. Two builds of
 the same sources are byte-identical.
 
-The design is specified in [PLAN.md](PLAN.md).
+What is still to do is listed in [PLAN.md](PLAN.md).
 
 ## Install
 
@@ -175,7 +175,7 @@ allowed, and the two advisories that cannot be fixed here (they sit inside Typst
 code, which `hideo` does not use) are listed there with the reason.
 
 CI: [Semaphore](https://semaphoreci.com) (Linux, macOS) and
-[AppVeyor](https://www.appveyor.com) (Windows); see PLAN.md section 8.6.
+[AppVeyor](https://www.appveyor.com) (Windows); the configuration is in `.semaphore/` and `appveyor.yml`.
 
 ## Background for the project name
 
