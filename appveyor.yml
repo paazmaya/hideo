@@ -1,10 +1,16 @@
 # https://www.appveyor.com/docs/appveyor-yml/
+#
+# Windows only runs what depends on the platform: the tests and the reproducibility check.
+# Formatting and lint are platform independent and run on Semaphore (Linux), so they are not
+# repeated here. The release build, which is a second full compile of Typst, only happens for tags.
 image:
   - Visual Studio 2022
 
 branches:
   only:
     - main
+    # "only" is applied to tag names too, so release tags must be listed or they never build.
+    - /v\d+\.\d+\.\d+/
 
 skip_branch_with_pr: true
 
@@ -12,6 +18,8 @@ skip_commits:
   files:
     - "*.md"
     - "LICENSE*"
+    - ".semaphore/*"
+    - "deny.toml"
 
 version: "{build}-{branch}"
 
@@ -25,9 +33,11 @@ init:
 
 clone_depth: 1
 
+# The free plan has 1 GB of cache for the whole account and a build fails when an entry goes over
+# it. A clean `target` is about 2 GB (debug) plus 1.5 GB (release), so it is not cached. Only the
+# downloaded crate files are.
 cache:
-  - '%USERPROFILE%\.cargo\registry -> Cargo.lock'
-  - target -> Cargo.lock, rust-toolchain.toml, appveyor.yml
+  - '%USERPROFILE%\.cargo\registry\cache -> Cargo.lock'
 
 install:
   - ps: |
@@ -44,44 +54,59 @@ install:
 build: off
 
 test_script:
-  - cargo fmt --all --check
-  - cargo clippy --all-targets --locked -- -D warnings
   - cargo test --locked
-  - cargo build --release --locked
-  - set SOURCE_DATE_EPOCH=1700000000
-  - target\release\hideo.exe build --input tests\fixtures\full --output out1 --jobs 1
-  - target\release\hideo.exe build --input tests\fixtures\full --output out2 --jobs 4
   - ps: |
+      $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+      $tag = $env:APPVEYOR_REPO_TAG -eq "true"
+
+      # `cargo test` already built target\debug\hideo.exe; only a tag needs the release binary.
+      if ($tag) {
+        cargo build --release --locked
+        if ($LASTEXITCODE -ne 0) { throw "release build failed" }
+      }
+      $exe = if ($tag) { "target\release\hideo.exe" } else { "target\debug\hideo.exe" }
+
+      # Two builds of the same sources must give identical PDFs, whatever the thread count.
+      $env:SOURCE_DATE_EPOCH = "1700000000"
+      & $exe build --input tests\fixtures\full --output out1 --jobs 1
+      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 1 failed" }
+      & $exe build --input tests\fixtures\full --output out2 --jobs 4
+      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 4 failed" }
       Get-ChildItem out1\*.pdf | ForEach-Object {
         if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) {
           throw "not reproducible: $($_.Name)"
         }
       }
 
-after_test:
-  - ps: |
-      if ($env:APPVEYOR_REPO_TAG -eq "true") {
-        $v = $env:APPVEYOR_REPO_TAG_NAME
-        $dir = "hideo-$v-x86_64-pc-windows-msvc"
+      # The release archive is made here, before AppVeyor collects the artifacts below.
+      if ($tag) {
+        $dir = "hideo-$($env:APPVEYOR_REPO_TAG_NAME)-x86_64-pc-windows-msvc"
         New-Item -ItemType Directory $dir | Out-Null
         Copy-Item target\release\hideo.exe, LICENSE, README.md $dir
         Copy-Item assets\fonts\readexpro\OFL.txt "$dir\OFL-ReadexPro.txt"
         Compress-Archive $dir "$dir.zip"
         (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Set-Content "$dir.zip.sha256"
-        Push-AppveyorArtifact "$dir.zip"
-        Push-AppveyorArtifact "$dir.zip.sha256"
       }
 
+# Artifacts stay in AppVeyor for 1 month (free plan) or 3 months (paid); the GitHub release
+# below is the permanent copy. Paths that do not exist (the archive on a branch build) are skipped.
 artifacts:
   - path: out1\*.pdf
     name: fixture-pdfs
+  - path: hideo-*-x86_64-pc-windows-msvc.zip
+    name: hideo-windows-archive
+  - path: hideo-*-x86_64-pc-windows-msvc.zip.sha256
+    name: hideo-windows-checksum
 
 deploy:
   - provider: GitHub
     auth_token:
       secure: <encrypted GitHub token>
-    artifact: /hideo-.*\.zip.*/
+    description: "Windows build of hideo"
+    artifact: /hideo-.*-x86_64-pc-windows-msvc\.zip(\.sha256)?/
     tag: $(APPVEYOR_REPO_TAG_NAME)
     draft: true
+    prerelease: false
+    force_update: true
     on:
       APPVEYOR_REPO_TAG: true

@@ -30,7 +30,7 @@ blocks:
             - mkdir -p release
             - cp target/release/hideo release/
             - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
+            - (cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt)
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-unknown-linux-gnu.tar.gz.sha256
@@ -48,7 +48,7 @@ blocks:
             - mkdir -p release
             - cp target/release/hideo release/
             - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
+            - (cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt)
             - sha256sum hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-unknown-linux-gnu.tar.gz.sha256
@@ -66,8 +66,8 @@ blocks:
             - mkdir -p release
             - cp target/release/hideo release/
             - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
-            - sha256sum hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz.sha256
+            - (cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt)
+            - shasum -a 256 hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz >hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-aarch64-apple-darwin.tar.gz.sha256
 
@@ -85,8 +85,8 @@ blocks:
             - mkdir -p release
             - cp target/x86_64-apple-darwin/release/hideo release/
             - cp LICENSE README.md release/ && cp assets/fonts/readexpro/OFL.txt release/OFL-ReadexPro.txt
-            - cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt
-            - sha256sum hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz > hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz.sha256
+            - (cd release && tar czf ../hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz hideo LICENSE README.md OFL-ReadexPro.txt)
+            - shasum -a 256 hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz >hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz.sha256
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz
             - artifact push workflow hideo-${SEMAPHORE_GIT_TAG}-x86_64-apple-darwin.tar.gz.sha256
 
@@ -97,5 +97,9 @@ blocks:
       jobs:
         - name: create draft release
           commands:
+            # The four build blocks pushed their archives to the workflow artifact store; this job
+            # starts on a clean machine, so fetch them first.
+            - for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do artifact pull workflow "hideo-${SEMAPHORE_GIT_TAG}-${target}.tar.gz"; artifact pull workflow "hideo-${SEMAPHORE_GIT_TAG}-${target}.tar.gz.sha256"; done
+            - ls -l hideo-*.tar.gz*
             - gh release view "${SEMAPHORE_GIT_TAG}" || gh release create "${SEMAPHORE_GIT_TAG}" --draft --title "${SEMAPHORE_GIT_TAG}" --notes "Release ${SEMAPHORE_GIT_TAG}"
-            - gh release upload "${SEMAPHORE_GIT_TAG}" hideo-*-${SEMAPHORE_GIT_TAG}-*.tar.gz hideo-*-${SEMAPHORE_GIT_TAG}-*.tar.gz.sha256
+            - gh release upload "${SEMAPHORE_GIT_TAG}" --clobber hideo-${SEMAPHORE_GIT_TAG}-*.tar.gz hideo-${SEMAPHORE_GIT_TAG}-*.tar.gz.sha256

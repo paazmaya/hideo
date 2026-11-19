@@ -37,7 +37,7 @@ global_job_config:
 blocks:
   - name: Lint
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       jobs:
         - name: fmt and clippy
@@ -45,9 +45,21 @@ blocks:
             - cargo fmt --all --check
             - cargo clippy --all-targets --locked -- -D warnings
 
+  - name: Dependencies (licenses and advisories)
+    run:
+      when: "change_in(['/Cargo.toml', '/Cargo.lock', '/deny.toml', '/.semaphore/'], {default_branch: 'main'})"
+    task:
+      jobs:
+        - name: cargo deny
+          commands:
+            # cargo-binstall downloads a prebuilt cargo-deny instead of compiling it.
+            - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+            - cargo binstall --no-confirm --locked cargo-deny
+            - cargo deny check
+
   - name: Test (Linux x86_64)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       prologue:
         commands:
@@ -63,7 +75,7 @@ blocks:
 
   - name: MSRV (Rust 1.92)
     run:
-      when: "change_in(['/src/', '/Cargo.toml', '/Cargo.lock', '/.semaphore/'])"
+      when: "change_in(['/src/', '/Cargo.toml', '/Cargo.lock', '/.semaphore/'], {default_branch: 'main'})"
     task:
       jobs:
         - name: cargo check on MSRV
@@ -73,7 +85,7 @@ blocks:
 
   - name: Test (Linux ARM)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       agent:
         machine:
@@ -86,7 +98,7 @@ blocks:
 
   - name: Test (macOS)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       agent:
         machine:
@@ -99,7 +111,7 @@ blocks:
 
   - name: Release build and end-to-end
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'])"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       jobs:
         - name: build, build fixture twice, compare

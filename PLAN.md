@@ -5,12 +5,13 @@
 > Evaluated 2026-11-18 against commit `28ed39c` ("Implementation has begun"). At that commit
 > `cargo build` failed with 28 errors, `main.rs` was `todo!()` for all three commands, the Typst
 > template was not valid Typst and several fixtures were malformed. Most modules were rewritten
-> rather than repaired. `[x]` = implemented **and** verified by `cargo test` (166 unit tests,
-> 58 integration tests, all green) or by running the binary; nothing is marked done because the
+> rather than repaired. `[x]` = implemented **and** verified by `cargo test` (171 unit tests,
+> 61 integration tests, all green) or by running the binary; nothing is marked done because the
 > code merely exists. `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` are
 > clean with and without `--features native-diagrams`.
 >
-> **Last updated 2026-11-18.** Nothing is committed yet.
+> **Last updated 2026-11-19.** Nothing is committed yet. What is left needs a push, a tag or a
+> person: CI runs, the NVDA pass, the release pipeline and the author's real diagrams.
 
 **Foundation (Appendix E)**
 
@@ -19,8 +20,8 @@
 - [x] `.semaphore/semaphore.yml`, `.semaphore/release.yml`, `appveyor.yml` written; their commands match the real CLI flags
 - [x] Config structs with `deny_unknown_fields` (`config.rs`), CLI definitions (`cli.rs`), error and warning codes (`error.rs`)
 - [x] `oxlint.json` deleted; Renovate `packageRules` for `typst*` and `pulldown-cmark`; README rewritten (usage, profile, accessibility); CHANGELOG entry
-- [ ] **CI actually green on Semaphore and AppVeyor** (needs a push; the first-run `(verify)` items in 8.6 are still open)
-- [ ] README badge and docs links to `semaphore.io` (verify they redirect)
+- [ ] **CI actually green on Semaphore and AppVeyor** (needs a push; the first-run `(verify)` items in 8.6 are still open). Done locally on 2026-11-19: all three CI YAML files parse without errors or warnings (`yaml` 2.x), and the AppVeyor reproducibility step (`--jobs 1` against `--jobs 4`, compared with the PowerShell snippet) was run as written and passes
+- [x] README badge and links checked 2026-11-19: `paazmaya.semaphoreci.com/badges/hideo/branches/main.svg` answers 200 with `image/svg+xml` and the project URL answers 200, so the `semaphoreci.com` org domain still works (no `semaphore.io` move needed); `docs.semaphoreci.com` answers 301 (moved). Every other README link answers 200, except `pdfa.org`, which answers 403 to scripts and could not be checked. Whether the badge says "passing" needs a first CI run
 
 **M1 Skeleton + Config (F1–F4, F21, F22)**
 
@@ -158,7 +159,37 @@ Findings and deviations from the text below, in the order they matter:
   (fixed in `font_problems`, with a test); and **class and ER diagrams were not reproducible**:
   `look: "neo"` adds random outline jitter, 13 of 120 SVGs differed between runs. The theme now sets
   `handDrawnSeed: 1`, after which two cold builds give identical PDFs. Remaining 13 W010 notices
-  are gantt charts, where mermaid hardcodes `font-family="sans-serif"` on its text.
+  are gantt charts, where mermaid hardcodes `font-family="sans-serif"` on its text (solved in N14).
+- **N14. `cargo deny`, no `chrono`, gantt fonts** (2026-11-20). `cargo deny check` (cargo-deny 0.21)
+  first failed: `chrono` is flagged unmaintained (RUSTSEC-2026-0543). hideo used it only to turn
+  `SOURCE_DATE_EPOCH` into a date, so `compile.rs` now does that with a 15-line `civil_from_days`
+  (tested over leap days, 1900, 2100 and negative epochs) and `lopdf` (dev only) is built without its
+  default `chrono-clock` feature; `chrono` is gone from `Cargo.lock`. Two `quick-xml 0.38.4` advisories
+  (RUSTSEC-2026-0194, -0195) arrive through `typst-library -> hayagriva -> citationberg`, fixed only in
+  quick-xml 0.41, so they are ignored in `deny.toml` with the reason (bibliographies are not used) until
+  Typst moves. Duplicate crate versions are allowed. Result: advisories, bans, licenses, sources all ok.
+  The 13 gantt notices came from one `<g class="grid" font-family="sans-serif">` (the date axis), which
+  the theme cannot reach. `diagrams::normalize_fonts` now rewrites attributes that hold only a generic
+  family (`sans-serif`, `serif`, `monospace`) to `Readex Pro, sans-serif` and so on, before the font
+  check and the cache; `DIAGRAM_PIPELINE_VERSION` is `hideo_diagram_v2`. The 120-diagram run has 0
+  W010 notices now. CI installs `cargo-deny` with `cargo binstall` (a prebuilt binary, no compile).
+  Reading `.semaphore/release.yml` found four bugs that a real tag would have hit, all fixed (not yet
+  run on Semaphore): the release job never ran `artifact pull workflow`, so it had no archives; its
+  upload glob `hideo-*-<tag>-*` did not match `hideo-<tag>-<target>.tar.gz`; `cd release && tar ...`
+  left the shell in `release/`, so the following `sha256sum` and `artifact push` could not find the
+  archive (now a subshell); and macOS has no `sha256sum` (now `shasum -a 256`). The archive, checksum
+  and glob steps were simulated locally.
+- **N15. AppVeyor time and release fixes** (2026-11-20, after reading AppVeyor's docs). Two bugs: tag
+  builds could never start (`branches: only` filters tag names; the `v*.*.*` pattern is added) and the
+  GitHub deploy lacked `description` (422). The `target` cache is dropped because it would exceed the
+  1 GB account quota and fail builds. Windows no longer runs fmt/clippy (Semaphore does) and builds the
+  release binary only for tags; the reproducibility check uses the debug binary from `cargo test`.
+  Measured on a clean build (32 cores): clippy 104 s, test build 118 to 202 s, release 149 s, all of
+  which is slower on AppVeyor's 2-core VM. The release archive is built in `test_script` and declared
+  under `artifacts:`. Both a branch build and a tag build of the script were run locally under Windows
+  PowerShell 5.1 (identical PDFs, zip with `hideo.exe`, `LICENSE`, `README.md`, `OFL-ReadexPro.txt`, the
+  checksum, and the deploy regex matches both files). Still unconfirmed: whether Rust is preinstalled on
+  the image, and the real timings.
 - **N6. Performance** (Windows 11, 32 logical cores, release build, `scripts/gen-corpus.py`:
   230 pages, 309 MB of JPEG heroes, 3 tiers, diagrams off): cold build **12.9 s**, warm build
   **2.3 s**, cold with `--jobs 1` 69.8 s (about 0.25 s per image, decode plus Lanczos3 plus encode).
@@ -1405,12 +1436,18 @@ steps with Rust. Windows is the platform where path, CRLF and `\\?\` behaviour m
 
 ```yaml
 # https://www.appveyor.com/docs/appveyor-yml/
+#
+# Windows only runs what depends on the platform: the tests and the reproducibility check.
+# Formatting and lint are platform independent and run on Semaphore (Linux), so they are not
+# repeated here. The release build, which is a second full compile of Typst, only happens for tags.
 image:
   - Visual Studio 2022
 
 branches:
   only:
     - main
+    # "only" is applied to tag names too, so release tags must be listed or they never build.
+    - /v\d+\.\d+\.\d+/
 
 skip_branch_with_pr: true
 
@@ -1418,6 +1455,8 @@ skip_commits:
   files:
     - "*.md"
     - "LICENSE*"
+    - ".semaphore/*"
+    - "deny.toml"
 
 version: "{build}-{branch}"
 
@@ -1431,9 +1470,11 @@ init:
 
 clone_depth: 1
 
+# The free plan has 1 GB of cache for the whole account and a build fails when an entry goes over
+# it. A clean `target` is about 2 GB (debug) plus 1.5 GB (release), so it is not cached. Only the
+# downloaded crate files are.
 cache:
-  - '%USERPROFILE%\.cargo\registry -> Cargo.lock'
-  - target -> Cargo.lock, rust-toolchain.toml, appveyor.yml
+  - '%USERPROFILE%\.cargo\registry\cache -> Cargo.lock'
 
 install:
   - ps: |
@@ -1450,39 +1491,60 @@ install:
 build: off
 
 test_script:
-  - cargo fmt --all --check
-  - cargo clippy --all-targets --locked -- -D warnings
   - cargo test --locked
-  - cargo build --release --locked
-  - set SOURCE_DATE_EPOCH=1700000000
-  - target\release\hideo.exe build --input tests\fixtures\full --output out1 --jobs 1
-  - target\release\hideo.exe build --input tests\fixtures\full --output out2 --jobs 4
-  - ps: Get-ChildItem out1\*.pdf | ForEach-Object { if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) { throw "not reproducible: $($_.Name)" } }
-
-after_test:
   - ps: |
-      if ($env:APPVEYOR_REPO_TAG -eq "true") {
-        $v = $env:APPVEYOR_REPO_TAG_NAME
-        $dir = "hideo-$v-x86_64-pc-windows-msvc"
-        New-Item -ItemType Directory $dir | Out-Null
-        Copy-Item target\release\hideo.exe, LICENSE, README.md $dir
-        Compress-Archive $dir "$dir.zip"
-        (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Set-Content "$dir.zip.sha256"
-        Push-AppveyorArtifact "$dir.zip"
-        Push-AppveyorArtifact "$dir.zip.sha256"
+      $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+      $tag = $env:APPVEYOR_REPO_TAG -eq "true"
+
+      # `cargo test` already built target\debug\hideo.exe; only a tag needs the release binary.
+      if ($tag) {
+        cargo build --release --locked
+        if ($LASTEXITCODE -ne 0) { throw "release build failed" }
+      }
+      $exe = if ($tag) { "target\release\hideo.exe" } else { "target\debug\hideo.exe" }
+
+      # Two builds of the same sources must give identical PDFs, whatever the thread count.
+      $env:SOURCE_DATE_EPOCH = "1700000000"
+      & $exe build --input tests\fixtures\full --output out1 --jobs 1
+      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 1 failed" }
+      & $exe build --input tests\fixtures\full --output out2 --jobs 4
+      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 4 failed" }
+      Get-ChildItem out1\*.pdf | ForEach-Object {
+        if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) {
+          throw "not reproducible: $($_.Name)"
+        }
       }
 
+      # The release archive is made here, before AppVeyor collects the artifacts below.
+      if ($tag) {
+        $dir = "hideo-$($env:APPVEYOR_REPO_TAG_NAME)-x86_64-pc-windows-msvc"
+        New-Item -ItemType Directory $dir | Out-Null
+        Copy-Item target\release\hideo.exe, LICENSE, README.md $dir
+        Copy-Item assets\fonts\readexpro\OFL.txt "$dir\OFL-ReadexPro.txt"
+        Compress-Archive $dir "$dir.zip"
+        (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Set-Content "$dir.zip.sha256"
+      }
+
+# Artifacts stay in AppVeyor for 1 month (free plan) or 3 months (paid); the GitHub release
+# below is the permanent copy. Paths that do not exist (the archive on a branch build) are skipped.
 artifacts:
   - path: out1\*.pdf
     name: fixture-pdfs
+  - path: hideo-*-x86_64-pc-windows-msvc.zip
+    name: hideo-windows-archive
+  - path: hideo-*-x86_64-pc-windows-msvc.zip.sha256
+    name: hideo-windows-checksum
 
 deploy:
   - provider: GitHub
     auth_token:
-      secure: <encrypted GitHub token>       # Account → Encrypt YAML; never commit the plain token
-    artifact: /hideo-.*\.zip.*/
+      secure: <encrypted GitHub token>
+    description: "Windows build of hideo"
+    artifact: /hideo-.*-x86_64-pc-windows-msvc\.zip(\.sha256)?/
     tag: $(APPVEYOR_REPO_TAG_NAME)
-    draft: true                             # review, then publish by hand; the Semaphore jobs add their archives
+    draft: true
+    prerelease: false
+    force_update: true
     on:
       APPVEYOR_REPO_TAG: true
 ```
@@ -1492,19 +1554,28 @@ Notes:
 - `skip_branch_with_pr: true` and `branches: only: main` mean pull-request branches are built **once**, as PR
   builds, not twice. Keep both from the old file.
 - `build: off` keeps AppVeyor's MSBuild stage out of the way; everything is a script.
-- `branches: only: main` also means tag builds need either `main`-only tags or a `tags` rule: AppVeyor builds
-  tags by default but the branch filter applies to the tag's commit **(verify)**; if the release tag build does
-  not start, add `- /^v\d+\.\d+\.\d+$/` under `only`.
+- `branches: only` is applied to **tag names too** (AppVeyor's branches page), so the release tag pattern
+  `/v\d+\.\d+\.\d+/` is listed next to `main`; without it a tag never builds. `skip_commits` could also skip a
+  tag that points at a docs-only commit, so tag a commit that changed code.
+- Windows runs only what depends on the platform: `cargo test` and the reproducibility check. `cargo fmt` and
+  clippy are platform independent and run on Semaphore. The reproducibility check uses `target\debug\hideo.exe`
+  (already built by `cargo test`); `cargo build --release` only runs for tags, because it is a second full
+  Typst compile. The release archive is made at the end of `test_script`, before AppVeyor collects
+  `artifacts:`, and the checksum file is created the same way as on Semaphore.
 - The `deploy` section follows AppVeyor's GitHub provider documentation (provider name is case sensitive;
-  `artifact` matches by file name or regex; `on: APPVEYOR_REPO_TAG: true` limits to tag pushes). Creating the
+  `artifact` matches by file name or regex; `description` is needed or GitHub answers 422; `force_update` lets
+  a re-run overwrite files; `on: APPVEYOR_REPO_TAG: true` limits to tag pushes). Creating the
   release as a **draft** lets the Semaphore Linux/macOS jobs attach their archives to the same release (8.7)
   before it is published.
 - Rust on the AppVeyor image: whether rustup is preinstalled on `Visual Studio 2022` could not be confirmed
   (the AppVeyor Rust docs page returned 404; community templates install rustup with `rustup-init.exe`). The
   `install` step installs it only if `rustup` is missing. **(verify)** on the first run and delete the
   install if it is already there.
-- AppVeyor's cache is size-limited per project **(verify)**; if the `target` cache exceeds it or is slower
-  than rebuilding, keep only the registry cache.
+- AppVeyor's cache quota is per **account** (free plan 1 GB, one entry up to 3 GB) and a build fails when an
+  upload goes over it. A clean CI-style `target` measured 4.9 GB debug (2.0 GB, about 674 MB zipped, with
+  `CARGO_PROFILE_DEV_DEBUG=0`) plus 1.5 GB release, so `target` is **not** cached; only
+  `%USERPROFILE%\.cargo\registry\cache` is. Artifacts are kept 1 month (free) or 3 months (paid), so the
+  GitHub release is the permanent copy.
 - Compile errors with MSVC build tools are not expected (Typst crates are pure Rust); no extra Visual Studio
   components are needed. If a dependency adds a C build script, the VS 2022 image already has the MSVC toolchain.
 - On Windows, the file `C:\…` path forms and `\\?\` prefixes are the likely failure area; the test names in 8.2
@@ -1575,7 +1646,7 @@ Notes:
 | Table widths wrong                                                                                                  | Medium                               | Page breaks shift                                         | Literal algorithm, hand-computed fixtures, visual review                                                                                                                                 |
 | Font coverage (non-Latin characters)                                                                                | Low–Medium                           | Missing-glyph boxes                                       | Coverage warning in `check`; document supported scripts                                                                                                                                  |
 | Windows path/CRLF issues                                                                                            | Medium                               | Failures on Windows                                       | Lexical path normalization, `camino`, normalized CRLF, `windows-paths/` fixture; real Windows runner (AppVeyor) on every push                                                            |
-| Two CI systems (Semaphore + AppVeyor) drift apart                                                                   | Medium                               | Different toolchain or flags per platform                 | Same commands in both files (fmt, clippy, test, release build, reproducibility check); `rust-toolchain.toml` is the single source of the Rust version; Renovate does not touch CI images |
+| Two CI systems (Semaphore + AppVeyor) drift apart                                                                   | Medium                               | Different toolchain or flags per platform                 | Same commands where it matters (Semaphore: fmt, clippy, test, release build, reproducibility check; AppVeyor: test, reproducibility check, release build on tags); `rust-toolchain.toml` is the single source of the Rust version; Renovate does not touch CI images |
 | AppVeyor image lacks or changes Rust/VS tooling                                                                     | Low–Medium                           | Windows job red for non-code reasons                      | `install` step installs rustup when missing; first-run check (8.6)                                                                                                                       |
 | Header row emitted as plain cells instead of `table.header`                                                         | Medium (easy mistake in the emitter) | Table announced without column headers; PDF still "valid" | Emitter has one table function; struct-tree tests incl. negative control (7.10)                                                                                                          |
 | PDF/UA-1 validation fails builds on content problems (missing alt, empty title)                                     | Medium                               | Authors blocked                                           | Errors name page and line (E006); `accessibility.pdf_ua = false` escape hatch; `check` warns first (W006–W008)                                                                           |
@@ -1839,7 +1910,8 @@ The working tree is what is left after the Node.js tool was removed (`a4405d4`).
 - [x] Add `tests/fixtures/` skeletons (8.4) and the day-1 vertical-slice test: compile a hard-coded Typst string
       through `HideoWorld`, export with `typst_pdf::pdf`, load with `lopdf::Document::load_mem`, assert one page.
 - [x] `hideo.toml` example from Appendix A at the repo root.
-- [x] (License audit done 2026-11-18: `LICENSE` is MIT and every crate in `cargo metadata --all-features` is permissive; `deny.toml` holds the allow-list. The optional Semaphore `cargo deny` job is not added because `cargo-deny` could not be run here to validate the file.)
-- [ ] `LICENSE` is MIT. All direct dependencies listed are MIT, Apache-2.0 or dual MIT/Apache-2.0 (`typst*`
+- [x] (License audit done 2026-11-18: `LICENSE` is MIT and every crate in `cargo metadata --all-features` is permissive; `deny.toml` holds the allow-list. `cargo deny check` was run on 2026-11-20 and passes, see N14.)
+- [x] `LICENSE` is MIT. All direct dependencies listed are MIT, Apache-2.0 or dual MIT/Apache-2.0 (`typst*`
       Apache-2.0, `pulldown-cmark` MIT, `mermaid-rs-renderer` MIT, `merman` MIT OR Apache-2.0), so this is
-      compatible. Add `cargo-deny` **(optional)** with an allow-list to keep it that way, as a Semaphore job.
+      compatible. `cargo-deny` keeps it that way as a Semaphore job ("Dependencies" block, installed
+      with `cargo binstall`); the README says how to install it locally.

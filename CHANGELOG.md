@@ -23,7 +23,11 @@ The project is rewritten in Rust (the previous Node.js implementation was remove
 - Tagged PDF with PDF/UA-1 validation on by default, table header cells (`TH`, column scope),
   decorative images as artifacts, alt text, document language and outline.
 - Reproducible output from `SOURCE_DATE_EPOCH`.
-- CI definitions for Semaphore (Linux, macOS) and AppVeyor (Windows).
+- CI definitions for Semaphore (Linux, macOS) and AppVeyor (Windows), including a
+  `cargo deny` check of licenses and advisories (`deny.toml`; cargo-deny is installed with
+  `cargo binstall`).
+- Gantt charts no longer give font notices: generic `font-family` attributes in diagrams are
+  pointed at the embedded fonts.
 
 ### Removed
 

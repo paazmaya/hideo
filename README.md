@@ -2,7 +2,8 @@
 
 > Markdown to PDF book converter with many opinions baked in
 
-[![Ubuntu Build Status](https://paazmaya.semaphoreci.com/badges/hideo/branches/main.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
+[![Semaphore CI status](https://paazmaya.semaphoreci.com/badges/hideo/branches/main.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
+[![Appveyor CI status](https://ci.appveyor.com/api/projects/status/ix6ou9ex448eubq1/branch/main?svg=true)](https://ci.appveyor.com/project/paazmaya/hideo/branch/main)
 
 `hideo` turns a folder of Markdown pages and images into one PDF book per _tier_
 (a tier is a folder such as `required`, `additional`, `bonus`). It is a single binary: the
@@ -118,12 +119,12 @@ A ` ```mermaid ` code block becomes an image. Give it alt text after the fence l
 rendered by a command that follows the command line of `mmdc`
 ([mermaid-cli](https://github.com/mermaid-js/mermaid-cli), which needs
 [Node.js](https://nodejs.org) and a Chromium browser), configured under
-`[diagrams]`; [`mmdr`](https://crates.io/crates/mermaid-rs-renderer) works too. Results are cached, so only changed diagrams are rendered
+`[diagrams]`; [`mmdr`](https://github.com/1jehuang/mermaid-rs-renderer) works too. Results are cached, so only changed diagrams are rendered
 again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
 
 Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state
 diagrams in-process (no Node.js or Chromium; it uses the
-[`mermaid-rs-renderer`](https://crates.io/crates/mermaid-rs-renderer) crate) and hands the other types (sequence, class, ER, pie,
+[`mermaid-rs-renderer`](https://github.com/1jehuang/mermaid-rs-renderer) crate) and hands the other types (sequence, class, ER, pie,
 mindmap, gantt, ...) to the external command.
 
 ## Accessibility
@@ -163,7 +164,15 @@ cargo test                       # unit, property and end-to-end tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 cargo test --features native-diagrams
+cargo deny check                 # licenses and security advisories, see below
 ```
+
+`cargo deny check` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), which is not
+part of Rust. Install it once with `cargo install cargo-deny --locked`, or download a prebuilt
+binary with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+`cargo binstall cargo-deny`. The rules are in [deny.toml](deny.toml): only permissive licenses are
+allowed, and the two advisories that cannot be fixed here (they sit inside Typst's bibliography
+code, which `hideo` does not use) are listed there with the reason.
 
 CI: [Semaphore](https://semaphoreci.com) (Linux, macOS) and
 [AppVeyor](https://www.appveyor.com) (Windows); see PLAN.md section 8.6.

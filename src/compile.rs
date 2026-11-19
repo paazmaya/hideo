@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use chrono::{Datelike, Timelike};
 use typst::World;
 use typst::WorldExt;
 use typst::diag::{Severity, SourceDiagnostic, Warned};
@@ -59,15 +58,32 @@ pub fn source_date(value: Option<&str>) -> Result<Datetime, ConfigError> {
 }
 
 pub fn datetime_from_epoch(epoch: i64) -> Option<Datetime> {
-    let dt = chrono::DateTime::from_timestamp(epoch, 0)?;
+    let days = epoch.div_euclid(86_400);
+    let secs = epoch.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
     Datetime::from_ymd_hms(
-        dt.year(),
-        dt.month() as u8,
-        dt.day() as u8,
-        dt.hour() as u8,
-        dt.minute() as u8,
-        dt.second() as u8,
+        i32::try_from(year).ok()?,
+        month,
+        day,
+        (secs / 3_600) as u8,
+        (secs % 3_600 / 60) as u8,
+        (secs % 60) as u8,
     )
+}
+
+/// Proleptic Gregorian date for a count of days since 1970-01-01 (Howard Hinnant's
+/// `civil_from_days`). Written out here so that no date-time crate is needed.
+fn civil_from_days(days: i64) -> (i64, u8, u8) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u8;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u8;
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
 }
 
 /// Compile to a paged document without exporting. Used by tests and by `compile_pdf`.
@@ -262,6 +278,26 @@ mod tests {
         for bad in ["", "abc", "1.5", "99999999999999999999"] {
             assert!(source_date(Some(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn test_epoch_to_date_covers_leap_days_and_negative_epochs() {
+        let cases = [
+            (0, (1970, 1, 1, 0, 0, 0)),
+            (951_782_400, (2000, 2, 29, 0, 0, 0)),
+            (951_868_800, (2000, 3, 1, 0, 0, 0)),
+            (4_107_542_399, (2100, 2, 28, 23, 59, 59)),
+            (-1, (1969, 12, 31, 23, 59, 59)),
+            (-2_208_988_800, (1900, 1, 1, 0, 0, 0)),
+        ];
+        for (epoch, (y, mo, d, h, mi, s)) in cases {
+            assert_eq!(
+                datetime_from_epoch(epoch),
+                Datetime::from_ymd_hms(y, mo, d, h, mi, s),
+                "{epoch}"
+            );
+        }
+        assert!(datetime_from_epoch(i64::MAX).is_none());
     }
 
     fn world(src: &str) -> HideoWorld {

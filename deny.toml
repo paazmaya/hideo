@@ -1,6 +1,7 @@
-# cargo-deny configuration (optional): `cargo deny check licenses advisories`.
-# The allow-list is the set of licenses found in `cargo metadata --all-features` on 2026-11-18;
-# all of them are permissive. Not run in CI yet.
+# cargo-deny configuration: `cargo deny check` (install it first with `cargo install cargo-deny`
+# or `cargo binstall cargo-deny`). It is run in CI by the Semaphore "Dependencies" block.
+# The license allow-list is the set of licenses found in `cargo metadata --all-features` on
+# 2026-11-18; all of them are permissive.
 
 [graph]
 all-features = true
@@ -24,3 +25,14 @@ confidence-threshold = 0.9
 
 [advisories]
 unmaintained = "workspace"
+ignore = [
+  # quick-xml 0.38.4 is pulled in by typst-library -> hayagriva -> citationberg, which parse
+  # bibliography styles. hideo never uses bibliographies and never feeds untrusted XML to Typst,
+  # and the fix (quick-xml >= 0.41) needs a Typst release. Remove these when Typst updates.
+  { id = "RUSTSEC-2026-0194", reason = "only reachable through Typst bibliography styles, which hideo does not use" },
+  { id = "RUSTSEC-2026-0195", reason = "only reachable through Typst bibliography styles, which hideo does not use" },
+]
+
+[bans]
+# Typst and its dependencies pull in several versions of some crates; that is not ours to fix.
+multiple-versions = "allow"

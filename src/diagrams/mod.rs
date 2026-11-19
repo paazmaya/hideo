@@ -17,7 +17,7 @@ use crate::config::DEFAULT_DIAGRAM_THEME;
 use crate::error::{ErrorCode, HideoError, Warning, WarningCode};
 
 /// Bump when diagram post-processing changes, to invalidate caches.
-pub const DIAGRAM_PIPELINE_VERSION: &str = "hideo_diagram_v1";
+pub const DIAGRAM_PIPELINE_VERSION: &str = "hideo_diagram_v2";
 
 /// Font families embedded in the binary (via `typst-kit/embedded-fonts`).
 pub const EMBEDDED_FAMILIES: [&str; 5] = [
@@ -107,6 +107,29 @@ pub fn check_svg(svg: &str) -> Result<Vec<String>, DiagramError> {
         return Err(DiagramError::ForeignObject);
     }
     Ok(font_problems(svg))
+}
+
+/// Replaces `font-family` attributes that hold only a generic family with an embedded one.
+/// Mermaid hardcodes `font-family="sans-serif"` on the axis of gantt charts, outside the
+/// theme's reach, and a generic name makes Typst pick whatever face it finds first.
+pub fn normalize_fonts(svg: &str) -> String {
+    const GENERIC: [(&str, &str); 3] = [
+        (
+            "font-family=\"sans-serif\"",
+            "font-family=\"Readex Pro, sans-serif\"",
+        ),
+        (
+            "font-family=\"serif\"",
+            "font-family=\"Libertinus Serif, serif\"",
+        ),
+        (
+            "font-family=\"monospace\"",
+            "font-family=\"DejaVu Sans Mono, monospace\"",
+        ),
+    ];
+    GENERIC
+        .iter()
+        .fold(svg.to_string(), |acc, (from, to)| acc.replace(from, to))
 }
 
 /// `font-family` declarations in the SVG that do not name an embedded font. Typst resolves SVG
@@ -270,7 +293,7 @@ pub fn render_cached(
     {
         return Ok((cached, fonts));
     }
-    let svg = renderer.render(source, theme)?;
+    let svg = normalize_fonts(&renderer.render(source, theme)?);
     let fonts = check_svg(&svg)?;
     if let Some(path) = path {
         let _ = write_cache(&path, svg.as_bytes());
@@ -443,6 +466,19 @@ mod tests {
         assert!(font_problems(ok).is_empty(), "{:?}", font_problems(ok));
         let bad = r#"<style>#m{font-family: &quot;Comic Sans&quot;, cursive;}</style>"#;
         assert_eq!(font_problems(bad).len(), 1);
+    }
+
+    #[test]
+    fn generic_only_font_attributes_are_pointed_at_embedded_fonts() {
+        let gantt =
+            r#"<g class="grid" font-size="10" font-family="sans-serif" text-anchor="middle"/>"#;
+        assert_eq!(font_problems(gantt).len(), 1);
+        let fixed = normalize_fonts(gantt);
+        assert!(font_problems(&fixed).is_empty(), "{fixed}");
+        assert!(fixed.contains("font-size=\"10\""), "other attributes stay");
+        // Declarations that already name a face are left alone.
+        let named = r#"<text font-family="Arial, sans-serif">x</text>"#;
+        assert_eq!(normalize_fonts(named), named);
     }
 
     #[test]
