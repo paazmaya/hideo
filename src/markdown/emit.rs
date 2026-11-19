@@ -660,12 +660,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
 
     // ---- inline -------------------------------------------------------------------------
 
-    fn flush_pending(
-        &mut self,
-        pending: &mut String,
-        out: &mut String,
-        position: &mut Position,
-    ) {
+    fn flush_pending(&mut self, pending: &mut String, out: &mut String, position: &mut Position) {
         if !pending.is_empty() {
             let text = std::mem::take(pending);
             out.push_str(&self.escape_run(&text, *position));
@@ -784,7 +779,11 @@ impl<'a, 'l> Emitter<'a, 'l> {
             }
             Tag::Superscript => self.unsupported_inline("superscript", TagEnd::Superscript, line),
             Tag::Subscript => self.unsupported_inline("subscript", TagEnd::Subscript, line),
-            Tag::Link { link_type, dest_url, .. } => self.link(link_type, &dest_url, line),
+            Tag::Link {
+                link_type,
+                dest_url,
+                ..
+            } => self.link(link_type, &dest_url, line),
             Tag::Image { dest_url, .. } => self.inline_image(&dest_url, line),
             _ => {
                 // Block-level tag in an inline context: not reachable with a well-formed
@@ -1357,7 +1356,13 @@ Inline <b>html</b> is dropped with a warning.
 
         let wide = "| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | cccccccccccccccccccccccccccccccccc | dddddddddddddddddddddddddddddddddd | eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee | ffffffffffffffffffffffffffffffffff |\n|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 |";
         let e_wide = emit(wide);
-        assert!(e_wide.diag.warnings.iter().any(|w| w.code == WarningCode::W004));
+        assert!(
+            e_wide
+                .diag
+                .warnings
+                .iter()
+                .any(|w| w.code == WarningCode::W004)
+        );
     }
 
     #[test]
@@ -1492,10 +1497,7 @@ Inline <b>html</b> is dropped with a warning.
         assert_eq!(list_lines[0].text, "#[]");
 
         // 9. table with non-cell event (line 622)
-        emitter.events = vec![
-            (Event::SoftBreak, 0..1),
-            (Event::End(TagEnd::Table), 1..2),
-        ];
+        emitter.events = vec![(Event::SoftBreak, 0..1), (Event::End(TagEnd::Table), 1..2)];
         emitter.pos = 0;
         let tbl_lines = emitter.table(vec![], 1);
         assert!(!tbl_lines.is_empty());
@@ -1507,26 +1509,41 @@ Inline <b>html</b> is dropped with a warning.
         assert!(blk_lines.is_empty());
 
         // 11. metadata block in blocks (lines 334-336)
-        emitter.events = vec![(Event::End(TagEnd::MetadataBlock(pulldown_cmark::MetadataBlockKind::YamlStyle)), 0..1)];
+        emitter.events = vec![(
+            Event::End(TagEnd::MetadataBlock(
+                pulldown_cmark::MetadataBlockKind::YamlStyle,
+            )),
+            0..1,
+        )];
         emitter.pos = 0;
-        let meta_lines = emitter.block(Tag::MetadataBlock(pulldown_cmark::MetadataBlockKind::YamlStyle), 1);
+        let meta_lines = emitter.block(
+            Tag::MetadataBlock(pulldown_cmark::MetadataBlockKind::YamlStyle),
+            1,
+        );
         assert!(meta_lines.is_empty());
 
         // 12. block with inline tag rendering empty (line 343)
-        emitter.events = vec![
-            (Event::End(TagEnd::TableCell), 0..1),
-        ];
+        emitter.events = vec![(Event::End(TagEnd::TableCell), 0..1)];
         emitter.pos = 1;
         let empty_inline_block = emitter.block(Tag::TableCell, 1);
         assert!(empty_inline_block.is_empty());
 
         // 13. blockquote with kind (line 312)
-        assert_eq!(md("> [!NOTE]\n> alert\n"), "#quote(block: true)[\n\\[!NOTE\\] alert\n]");
-        emitter.events = vec![
-            (Event::End(TagEnd::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note))), 0..1),
-        ];
+        assert_eq!(
+            md("> [!NOTE]\n> alert\n"),
+            "#quote(block: true)[\n\\[!NOTE\\] alert\n]"
+        );
+        emitter.events = vec![(
+            Event::End(TagEnd::BlockQuote(Some(
+                pulldown_cmark::BlockQuoteKind::Note,
+            ))),
+            0..1,
+        )];
         emitter.pos = 0;
-        let bq = emitter.block(Tag::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note)), 1);
+        let bq = emitter.block(
+            Tag::BlockQuote(Some(pulldown_cmark::BlockQuoteKind::Note)),
+            1,
+        );
         assert!(!bq.is_empty());
 
         // 14. blocks with mismatched End event (line 273)

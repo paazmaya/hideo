@@ -184,14 +184,14 @@ mod tests {
     #[test]
     fn test_world_today_and_file_not_found() {
         let mut files = BTreeMap::new();
-        files.insert(
-            "main.typ".into(),
-            b"#set page(paper: \"a4\")".to_vec(),
-        );
+        files.insert("main.typ".into(), b"#set page(paper: \"a4\")".to_vec());
         let dt = Datetime::from_ymd(2025, 1, 1).unwrap();
         let world = HideoWorld::new(&files, dt).unwrap();
         assert_eq!(world.today(None), Some(dt));
         let missing_id = file_id("missing.typ").unwrap();
-        assert!(matches!(world.file(missing_id), Err(FileError::NotFound(_))));
+        assert!(matches!(
+            world.file(missing_id),
+            Err(FileError::NotFound(_))
+        ));
     }
 }

@@ -233,7 +233,8 @@ mod tests {
         };
         assert_eq!(format!("{err}"), "test error");
 
-        let (f, _) = parse("---\ntitle: T\nhero: H\nno_colon_line\nunknown_key: val\n---\n").unwrap();
+        let (f, _) =
+            parse("---\ntitle: T\nhero: H\nno_colon_line\nunknown_key: val\n---\n").unwrap();
         assert_eq!(f.title.as_deref(), Some("T"));
     }
 

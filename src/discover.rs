@@ -375,6 +375,10 @@ mod tests {
         fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
         let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let (_tiers, d) = discover(&config(&["t"]), &["t".into()], &root);
-        assert!(d.errors.iter().any(|e| e.message.contains("cannot read page")));
+        assert!(
+            d.errors
+                .iter()
+                .any(|e| e.message.contains("cannot read page"))
+        );
     }
 }

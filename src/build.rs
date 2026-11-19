@@ -896,10 +896,34 @@ mod tests {
 
         let outcome = run(&cfg, &opt);
         assert!(outcome.diagnostics.has_errors());
-        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E007));
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("remote")));
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("not found")));
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cannot be used")));
+        assert!(
+            outcome
+                .diagnostics
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::E007)
+        );
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("remote"))
+        );
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("not found"))
+        );
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("cannot be used"))
+        );
     }
 
     #[test]
@@ -927,7 +951,13 @@ mod tests {
             verbose: false,
         };
         let outcome = run(&cfg, &opt);
-        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E003));
+        assert!(
+            outcome
+                .diagnostics
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::E003)
+        );
     }
 
     #[test]
@@ -1013,7 +1043,13 @@ mod tests {
             verbose: false,
         };
         let outcome = run(&cfg, &opt);
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cover image")));
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("cover image"))
+        );
     }
 
     #[test]
@@ -1048,7 +1084,10 @@ mod tests {
             verbose: false,
         };
         let outcome = run(&cfg, &opt);
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("contents image `contents.png` cannot be used")));
+        assert!(outcome.diagnostics.warnings.iter().any(|w| {
+            w.message
+                .contains("contents image `contents.png` cannot be used")
+        }));
     }
 
     #[test]
@@ -1072,7 +1111,9 @@ mod tests {
             diagram_count: 0,
             unresolved: vec![],
         };
-        prepared.files.insert("main.typ".into(), b"#set document(title: \"T\")".to_vec());
+        prepared
+            .files
+            .insert("main.typ".into(), b"#set document(title: \"T\")".to_vec());
         let res = compile_tier(&cfg, &build, "required", &prepared);
         assert!(res.is_err());
     }
@@ -1098,7 +1139,8 @@ mod tests {
         };
         prepared.files.insert(
             "main.typ".into(),
-            b"#set page(paper: \"a4\")\n#set document(title: \"T\")\n#show page: it => it\nHello\n".to_vec(),
+            b"#set page(paper: \"a4\")\n#set document(title: \"T\")\n#show page: it => it\nHello\n"
+                .to_vec(),
         );
         let res = compile_tier(&cfg, &build, "required", &prepared).unwrap();
         assert!(!res.2.is_empty());
@@ -1159,7 +1201,13 @@ mod tests {
         };
         let outcome = run(&cfg, &opt);
         #[cfg(not(feature = "native-diagrams"))]
-        assert!(outcome.diagnostics.errors.iter().any(|e| e.code == ErrorCode::E007));
+        assert!(
+            outcome
+                .diagnostics
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::E007)
+        );
     }
 
     #[cfg(unix)]
@@ -1194,7 +1242,13 @@ mod tests {
             verbose: false,
         };
         let outcome = run(&cfg, &opt);
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.message.contains("cannot be used")));
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("cannot be used"))
+        );
     }
 
     #[cfg(unix)]
@@ -1241,6 +1295,12 @@ mod tests {
             verbose: false,
         };
         let outcome = run(&cfg, &opt);
-        assert!(outcome.diagnostics.warnings.iter().any(|w| w.code == WarningCode::W010));
+        assert!(
+            outcome
+                .diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.code == WarningCode::W010)
+        );
     }
 }

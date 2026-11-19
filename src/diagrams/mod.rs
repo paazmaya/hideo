@@ -756,8 +756,14 @@ classDiagram
 
     #[test]
     fn test_check_svg_unclosed_comment_and_doctype() {
-        assert!(matches!(check_svg("<!-- unclosed"), Err(DiagramError::InvalidSvg)));
-        assert!(matches!(check_svg("<!DOCTYPE unclosed"), Err(DiagramError::InvalidSvg)));
+        assert!(matches!(
+            check_svg("<!-- unclosed"),
+            Err(DiagramError::InvalidSvg)
+        ));
+        assert!(matches!(
+            check_svg("<!DOCTYPE unclosed"),
+            Err(DiagramError::InvalidSvg)
+        ));
     }
 
     #[test]
@@ -773,8 +779,12 @@ classDiagram
             fn render(&self, _s: &str, _t: &Theme) -> Result<String, DiagramError> {
                 Ok("<svg></svg>".into())
             }
-            fn name(&self) -> String { "mock".into() }
-            fn cache_id(&self) -> String { "id1".into() }
+            fn name(&self) -> String {
+                "mock".into()
+            }
+            fn cache_id(&self) -> String {
+                "id1".into()
+            }
         }
         let r = RoutingRenderer {
             primary: Box::new(MockBackend),

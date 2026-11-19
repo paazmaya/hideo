@@ -275,7 +275,13 @@ mod tests {
 
     #[test]
     fn test_invalid_source_date_epoch_exits_2() {
-        for bad in ["", "abc", "1.5", "99999999999999999999", &i64::MAX.to_string()] {
+        for bad in [
+            "",
+            "abc",
+            "1.5",
+            "99999999999999999999",
+            &i64::MAX.to_string(),
+        ] {
             assert!(source_date(Some(bad)).is_err(), "{bad}");
         }
     }
@@ -283,10 +289,7 @@ mod tests {
     #[test]
     fn test_map_warning() {
         let mut files = BTreeMap::new();
-        files.insert(
-            "main.typ".into(),
-            b"#set page(paper: \"a4\")".to_vec(),
-        );
+        files.insert("main.typ".into(), b"#set page(paper: \"a4\")".to_vec());
         let dt = Datetime::from_ymd(2025, 1, 1).unwrap();
         let world = HideoWorld::new(&files, dt).unwrap();
         let maps = SourceMaps::new();
