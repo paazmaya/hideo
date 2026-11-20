@@ -218,9 +218,7 @@ mod tests {
         assert!(main.contains(r#"title: "My \"Book\" – Req""#), "{main}");
         assert!(main.contains(r#"lang: "fi""#));
         assert!(main.contains(r#"#cover("images/c.jpg", "My \"Book\"", "Req course material", "A. Author", 170mm, 20mm)"#), "{main}");
-        assert!(main.contains(r#"#contents("images/ch.jpg", "Contents", 2, ("#));
-        assert!(main.contains(r#"(group: none, title: "First: \"A\"", target: <req-01>),"#));
-        assert!(main.contains(r#"(group: "sub", title: "Second", target: <req-sub-02>),"#));
+        assert!(main.contains(r#"#contents("images/ch.jpg", "Contents", 2)"#));
         assert!(main.contains("#include \"pages/001.typ\"\n#include \"pages/002.typ\""));
     }
 

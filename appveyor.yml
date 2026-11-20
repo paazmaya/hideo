@@ -26,6 +26,9 @@ version: "{build}-{branch}"
 environment:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 2
+  CARGO_NET_RETRY: 10
+  RUSTUP_TOOLCHAIN: 1.92.0
   RUST_BACKTRACE: 1
 
 init:
@@ -46,15 +49,18 @@ install:
         .\rustup-init.exe -y --default-host x86_64-pc-windows-msvc
         Remove-Item rustup-init.exe
       }
+      rustup toolchain install 1.92.0 --profile minimal
+      rustup default 1.92.0
   - set PATH=%USERPROFILE%\.cargo\bin;%PATH%
   - rustup show
   - rustc -V
   - cargo -V
+  - cargo fetch --locked
 
 build: off
 
 test_script:
-  - cargo test --locked
+  - cargo test --locked --jobs 2 -- --test-threads=1 --nocapture
   - ps: |
       $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
       $tag = $env:APPVEYOR_REPO_TAG -eq "true"
