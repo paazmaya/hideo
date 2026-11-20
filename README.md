@@ -1,6 +1,6 @@
 # Hideo (秀雄)
 
-> Markdown to PDF book converter with many opinions baked in
+> Markdown to PDF book converter with many opinions baked in for full accessibility
 
 [![Semaphore CI status](https://paazmaya.semaphoreci.com/badges/hideo/branches/main.svg)](https://paazmaya.semaphoreci.com/projects/hideo)
 [![Appveyor CI status](https://ci.appveyor.com/api/projects/status/ix6ou9ex448eubq1/branch/main?svg=true)](https://ci.appveyor.com/project/paazmaya/hideo/branch/main)
@@ -16,6 +16,8 @@ page, working internal links, styled tables whose header row repeats across page
 Mermaid diagrams, and an **accessible, tagged PDF that is validated
 against [PDF/UA-1](https://pdfa.org/resource/iso-14289-pdfua/)** on every build. Two builds of
 the same sources are byte-identical.
+
+The resulting PDF can then be tested for example with [PAC](https://pac.pdf-accessibility.org/en), that has been very helpful in making `hideo` to produce fully accessible PDF documents.
 
 What is still to do is listed in [PLAN.md](PLAN.md).
 

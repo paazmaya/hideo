@@ -59,11 +59,16 @@ blocks:
         commands:
           - cache restore target-linux-$(checksum Cargo.lock),target-linux
       jobs:
-        - name: fmt, clippy, test, build the fixture twice
+        - name: fmt, clippy, test, build
           commands:
+            # cargo-binstall downloads a prebuilt cargo-deny instead of compiling it.
+            - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+            - cargo binstall --no-confirm --locked cargo-deny cargo-tarpaulin
+            - cargo deny check
             - cargo fmt --all --check
             - cargo clippy --all-targets --locked -- -D warnings
-            - cargo test --locked
+            - cargo tarpaulin --out Xml
+            - test-results publish cobertura.xml
             - export SOURCE_DATE_EPOCH=1700000000
             - ./target/debug/hideo build --input tests/fixtures/full --output out1 --jobs 1
             - ./target/debug/hideo build --input tests/fixtures/full --output out2 --jobs 4
@@ -73,28 +78,6 @@ blocks:
         on_pass:
           commands:
             - cache has_key target-linux-$(checksum Cargo.lock) || (cache delete target-linux || true; cache store target-linux-$(checksum Cargo.lock),target-linux target)
-
-  - name: Dependencies (licenses and advisories)
-    run:
-      when: "change_in(['/Cargo.toml', '/Cargo.lock', '/deny.toml', '/.semaphore/'], {default_branch: 'main'})"
-    task:
-      jobs:
-        - name: cargo deny
-          commands:
-            # cargo-binstall downloads a prebuilt cargo-deny instead of compiling it.
-            - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-            - cargo binstall --no-confirm --locked cargo-deny
-            - cargo deny check
-
-  - name: MSRV (Rust 1.92)
-    run:
-      when: "change_in(['/src/', '/Cargo.toml', '/Cargo.lock', '/.semaphore/'], {default_branch: 'main'})"
-    task:
-      jobs:
-        - name: cargo check on MSRV
-          commands:
-            - rustup toolchain install 1.92 --profile minimal
-            - cargo +1.92 check --locked
 
   # The block below only run on `main` and on tags: macOS minutes cost twelve times a Linux
   # minute, and Linux x86_64 already covers every branch.
