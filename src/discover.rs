@@ -337,7 +337,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "t/valid.md", &page("ok"));
         let bad_path = dir.path().join("t/bad_content.md");
-        fs::write(bad_path, &[0xff, 0xfe, 0xfd]).unwrap();
+        fs::write(bad_path, [0xff, 0xfe, 0xfd]).unwrap();
         let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let (_tiers, d) = discover(&config(&["t"]), &["t".into()], &root);
         assert!(d.errors.iter().any(|e| e.message.contains("valid UTF-8")));

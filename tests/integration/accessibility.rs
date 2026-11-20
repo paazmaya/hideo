@@ -279,9 +279,9 @@ fn test_decorative_images_are_artifacts_and_figures_have_alt() {
             .unwrap_or_else(|_| panic!("Figure without Alt: {:?}", e.dict));
         alts.insert(String::from_utf8_lossy(alt.as_str().unwrap()).into_owned());
     }
-    // Heroes (decorative), the cover, the contents image and the empty-alt body image are
-    // artifacts. Real figures: the hero with `hero_alt`, the body image and the arrow icon.
-    assert_eq!(figures, 3, "{alts:?}");
+    // Heroes (decorative), the cover, the contents image, the empty-alt body image and the
+    // external-link arrow are artifacts. Real figures: the hero with `hero_alt` and the body image.
+    assert_eq!(figures, 2, "{alts:?}");
     assert!(
         alts.contains("A purple to blue gradient"),
         "hero_alt makes the hero content: {alts:?}"
@@ -290,9 +290,82 @@ fn test_decorative_images_are_artifacts_and_figures_have_alt() {
         alts.contains("A colourful gradient used as a figure"),
         "{alts:?}"
     );
+}
+
+#[test]
+fn test_toc_entry_structure() {
+    let (_out, doc) = full_required();
+    let roles = count_roles(&struct_elems(&doc));
+    assert!(roles["TOC"] >= 1, "contents is a TOC structure: {roles:?}");
     assert!(
-        alts.contains("external link"),
-        "the arrow icon has alt text: {alts:?}"
+        roles["TOCI"] >= 6,
+        "contents entries are TOCI structures: {roles:?}"
+    );
+
+    let pages = doc.get_pages();
+    let catalog = doc.catalog().unwrap();
+    let names = match catalog.get(b"Names").unwrap() {
+        Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+        Object::Dictionary(dict) => dict,
+        _ => unreachable!(),
+    };
+    let destinations = match names.get(b"Dests").unwrap() {
+        Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+        Object::Dictionary(dict) => dict,
+        _ => unreachable!(),
+    };
+    let mut named = Default::default();
+    doc.get_named_destinations(destinations, &mut named)
+        .unwrap();
+    let annotations = doc
+        .get_page_annotations(*pages.get(&2).expect("contents page"))
+        .unwrap();
+    let mut destination_pages = Vec::new();
+    for annotation in annotations {
+        if annotation.get(b"Subtype").ok().and_then(name_of).as_deref() != Some("Link") {
+            continue;
+        }
+        let destination = annotation.get(b"Dest").expect("TOC link has a destination");
+        let destination = match destination {
+            Object::Reference(id) => doc.get_object(*id).expect("destination object"),
+            object => object,
+        };
+        let name = destination.as_str().expect("named destination");
+        let page = named
+            .get(name)
+            .unwrap_or_else(|| panic!("missing named destination {name:?}"))
+            .page()
+            .unwrap()
+            .as_reference()
+            .expect("destination targets a page");
+        assert!(
+            pages.values().any(|id| *id == page),
+            "TOC destination {page:?} is not a document page"
+        );
+        destination_pages.push(
+            pages
+                .iter()
+                .find_map(|(number, id)| (*id == page).then_some(*number))
+                .unwrap(),
+        );
+    }
+
+    let expected = [
+        "This is the introduction page",
+        "A second-level heading",
+        "Rust Code",
+        "Simple Table",
+        "A body image scaled",
+        "Unicode headings",
+    ]
+    .map(|marker| {
+        (3..=page_count(&doc) as u32)
+            .find(|&number| page_text(&doc, number).contains(marker))
+            .unwrap()
+    });
+    assert_eq!(
+        destination_pages, expected,
+        "every TOCI link reaches its displayed heading"
     );
 }
 
@@ -307,7 +380,7 @@ fn test_hero_without_alt_is_artifact() {
 }
 
 #[test]
-fn test_external_link_arrow_has_alt() {
+fn test_external_link_arrow_is_artifact() {
     let (_out, doc) = full_required();
     let alts: Vec<String> = struct_elems(&doc)
         .iter()
@@ -322,8 +395,8 @@ fn test_external_link_arrow_has_alt() {
         .collect();
     assert_eq!(
         alts.iter().filter(|a| *a == "external link").count(),
-        1,
-        "one web link in the tier; mailto has no arrow: {alts:?}"
+        0,
+        "the decorative arrow must not be a Figure: {alts:?}"
     );
 }
 

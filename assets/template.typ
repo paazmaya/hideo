@@ -103,8 +103,9 @@
 // Lead-in label of a paragraph.
 #let lead(body) = text(weight: "bold", fill: accent, body)
 
-// External link followed by a small arrow icon with alt text.
-#let ext-link(url, body) = link(url)[#body#h(0.2em)#box(image("/arrow.svg", height: 0.6em, alt: "external link"))]
+// External link followed by a decorative arrow icon. The link text identifies the destination;
+// the icon must not create an additional Figure tag or be announced by assistive technology.
+#let ext-link(url, body) = link(url)[#body#h(0.2em)#box(pdf.artifact(kind: "layout", image("/arrow.svg", height: 0.6em)))]
 
 // Largest height an image or diagram may take: most of the text area, so a tall picture never
 // outgrows a page (an unbreakable block taller than the page is clipped).
@@ -180,16 +181,9 @@
   },
 )
 
-// One line of the contents: title, dotted leader (an artifact, so screen readers do not read
-// a run of dots), page number looked up from the page's label.
-#let toc-entry(title, target) = block(above: 0.55em, below: 0pt, width: 100%, link(target)[
-  #title#box(width: 1fr, pdf.artifact(kind: "layout", repeat[.]))#context counter(page).at(target).first()
-])
-
-#let toc-group(name) = block(above: 1em, below: 0pt, sticky: true, text(size: 8.5pt, weight: "bold", fill: h2-color, name))
-
-// The contents page. `entries` is an array of (group: str|none, title: str, target: label).
-#let contents(hero, title, columns-count, entries) = {
+// Native outline elements provide TOC/TOCI structure and correctly associate each entry's link
+// with its destination.
+#let contents(hero, title, columns-count) = {
   pagebreak(weak: true)
   if hero != none {
     pad(x: -margin-x, top: -margin-y, pdf.artifact(kind: "layout", image(hero, width: 100%)))
@@ -198,14 +192,7 @@
   heading(level: 1, outlined: false, title)
   set text(size: 7.5pt)
   set par(leading: 0.4em)
-  columns(columns-count, gutter: 6mm, {
-    let current = none
-    for e in entries {
-      if e.group != none and e.group != current {
-        toc-group(e.group)
-        current = e.group
-      }
-      toc-entry(e.title, e.target)
-    }
-  })
+  set outline.entry(fill: repeat[.])
+  show outline.entry: set block(above: 0.55em, below: 0pt, width: 100%)
+  columns(columns-count, gutter: 6mm, outline(title: none, target: heading.where(level: 1)))
 }

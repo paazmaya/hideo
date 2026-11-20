@@ -71,28 +71,10 @@ pub fn main_typ(
         .map(typst_string)
         .unwrap_or_else(|| "none".to_string());
     out.push_str(&format!(
-        "#contents({hero}, {}, {}, (\n",
+        "#contents({hero}, {}, {})\n",
         typst_string(&config.contents.title),
         config.contents.columns
     ));
-    let prefix = format!("{tier}/");
-    for e in entries {
-        let in_tier = e
-            .page
-            .rel_path
-            .strip_prefix(&prefix)
-            .unwrap_or(&e.page.rel_path);
-        let group = match in_tier.rsplit_once('/') {
-            Some((dir, _)) => typst_string(dir),
-            None => "none".to_string(),
-        };
-        out.push_str(&format!(
-            "  (group: {group}, title: {}, target: <{}>),\n",
-            typst_string(e.page.title()),
-            e.page.key
-        ));
-    }
-    out.push_str("))\n");
 
     for e in entries {
         out.push_str(&format!(
