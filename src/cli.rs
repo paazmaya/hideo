@@ -19,6 +19,10 @@ ENVIRONMENT:
                      reproducible builds; default 946684800 (2000-01-01T00:00:00Z)"
 )]
 pub struct Cli {
+    /// Minimum message level to display
+    #[arg(long, value_name = "LEVEL", value_enum, global = true)]
+    pub verbosity: Option<Verbosity>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -68,11 +72,11 @@ pub struct BuildArgs {
     pub jobs: Option<usize>,
 
     /// Suppress warnings
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "verbose")]
     pub quiet: bool,
 
-    /// Verbose logging
-    #[arg(short, long)]
+    /// Verbose logging (equivalent to --verbosity debug)
+    #[arg(short, long, conflicts_with = "quiet")]
     pub verbose: bool,
 }
 
@@ -119,6 +123,20 @@ pub enum DiagramBackend {
     Native,
     External,
     Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum Verbosity {
+    Error,
+    Warning,
+    Info,
+    Debug,
+}
+
+impl Verbosity {
+    pub fn includes(self, level: Self) -> bool {
+        self >= level
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

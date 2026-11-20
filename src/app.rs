@@ -9,7 +9,9 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::build::{self, BuildOptions, Mode, Options};
-use crate::cli::{BuildArgs, CheckArgs, Cli, Command, DiagramBackend, ListArgs, ReportFormat};
+use crate::cli::{
+    BuildArgs, CheckArgs, Cli, Command, DiagramBackend, ListArgs, ReportFormat, Verbosity,
+};
 use crate::compile;
 use crate::config::{Config, DiagramBackendConfig};
 use crate::discover;
@@ -21,10 +23,11 @@ pub const EXIT_CONTENT: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
 
 pub fn run(cli: Cli) -> ExitCode {
+    let verbosity = cli.verbosity.unwrap_or(Verbosity::Info);
     let result = match cli.command {
-        Command::Build(args) => build_command(args),
-        Command::Check(args) => check_command(args),
-        Command::List(args) => list_command(args),
+        Command::Build(args) => build_command(args, verbosity),
+        Command::Check(args) => check_command(args, verbosity),
+        Command::List(args) => list_command(args, verbosity),
     };
     match result {
         Ok(code) => ExitCode::from(code),
@@ -83,7 +86,14 @@ fn backend_from_cli(config: &Config, flag: Option<DiagramBackend>) -> DiagramBac
     }
 }
 
-fn build_command(args: BuildArgs) -> Result<u8, ConfigError> {
+fn build_command(args: BuildArgs, cli_verbosity: Verbosity) -> Result<u8, ConfigError> {
+    let verbosity = if args.quiet {
+        Verbosity::Error
+    } else if args.verbose {
+        Verbosity::Debug
+    } else {
+        cli_verbosity
+    };
     let config = load_config(&args.input, &args.config)?;
     let tiers = select_tiers(&config, &args.tiers)?;
     let today = compile::source_date(std::env::var("SOURCE_DATE_EPOCH").ok().as_deref())?;
@@ -94,7 +104,7 @@ fn build_command(args: BuildArgs) -> Result<u8, ConfigError> {
                 .to_string(),
         ));
     }
-    if !config.accessibility.pdf_ua && !args.quiet {
+    if !config.accessibility.pdf_ua && verbosity.includes(Verbosity::Warning) {
         eprintln!(
             "warning: accessibility.pdf_ua is off; the PDF is not validated against PDF/UA-1"
         );
@@ -123,15 +133,17 @@ fn build_command(args: BuildArgs) -> Result<u8, ConfigError> {
         &mut std::io::stderr(),
         &report,
         &outcome.unresolved,
-        args.quiet,
+        !verbosity.includes(Verbosity::Warning),
     );
 
     for tier in &outcome.tiers {
-        if let (Some(pdf), Some(pages)) = (&tier.pdf, tier.pdf_pages) {
+        if verbosity.includes(Verbosity::Info)
+            && let (Some(pdf), Some(pages)) = (&tier.pdf, tier.pdf_pages)
+        {
             println!("{pdf} ({pages} pages)");
         }
     }
-    if args.verbose {
+    if verbosity.includes(Verbosity::Debug) {
         eprintln!(
             "built {} PDFs from {} pages in {:.1}s ({} images, {} diagrams)",
             outcome.stats.pdfs,
@@ -143,7 +155,7 @@ fn build_command(args: BuildArgs) -> Result<u8, ConfigError> {
     }
 
     let denied = args.deny_unresolved && !outcome.unresolved.is_empty();
-    if denied && !args.quiet {
+    if denied {
         eprintln!(
             "error: {} unresolved links and --deny-unresolved is set",
             outcome.unresolved.len()
@@ -156,7 +168,7 @@ fn build_command(args: BuildArgs) -> Result<u8, ConfigError> {
     })
 }
 
-fn check_command(args: CheckArgs) -> Result<u8, ConfigError> {
+fn check_command(args: CheckArgs, verbosity: Verbosity) -> Result<u8, ConfigError> {
     let config = load_config(&args.input, &args.config)?;
     let tiers = select_tiers(&config, &args.tiers)?;
     let options = Options {
@@ -175,15 +187,22 @@ fn check_command(args: CheckArgs) -> Result<u8, ConfigError> {
         ReportFormat::Json => println!("{}", report.to_json()),
         ReportFormat::Text => {
             let mut stdout = std::io::stdout();
-            let _ = report::write_text(&mut stdout, &report, &outcome.unresolved, false);
-            let _ = writeln!(
-                stdout,
-                "checked {} tiers, {} pages: {} errors, {} warnings",
-                report.stats.tiers,
-                report.stats.pages,
-                report.errors.len(),
-                report.warnings.len()
+            let _ = report::write_text(
+                &mut stdout,
+                &report,
+                &outcome.unresolved,
+                !verbosity.includes(Verbosity::Warning),
             );
+            if verbosity.includes(Verbosity::Info) {
+                let _ = writeln!(
+                    stdout,
+                    "checked {} tiers, {} pages: {} errors, {} warnings",
+                    report.stats.tiers,
+                    report.stats.pages,
+                    report.errors.len(),
+                    report.warnings.len()
+                );
+            }
         }
     }
     Ok(if outcome.diagnostics.has_errors() {
@@ -200,7 +219,7 @@ struct ListItem<'a> {
     title: &'a str,
 }
 
-fn list_command(args: ListArgs) -> Result<u8, ConfigError> {
+fn list_command(args: ListArgs, verbosity: Verbosity) -> Result<u8, ConfigError> {
     let config = load_config(&args.input, &args.config)?;
     let tiers = select_tiers(&config, &args.tiers)?;
     let (sources, diagnostics) = discover::discover(&config, &tiers, &args.input);
@@ -224,11 +243,12 @@ fn list_command(args: ListArgs) -> Result<u8, ConfigError> {
             "{}",
             serde_json::to_string_pretty(&items).expect("list serialises")
         ),
-        ReportFormat::Text => {
+        ReportFormat::Text if verbosity.includes(Verbosity::Info) => {
             for i in &items {
                 println!("{}\t{}\t{}", i.tier, i.path, i.title);
             }
         }
+        ReportFormat::Text => {}
     }
     let _ = report::write_text(&mut std::io::stderr(), &report, &[], false);
     Ok(EXIT_OK)
@@ -302,11 +322,12 @@ mod tests {
             jobs: Some(1),
             diagrams: Some(DiagramBackend::Off),
         };
-        let code = build_command(args).unwrap();
+        let code = build_command(args, Verbosity::Info).unwrap();
         assert_eq!(code, EXIT_OK);
 
         // Test run wrapper
         let cli = Cli {
+            verbosity: None,
             command: Command::List(ListArgs {
                 input: Utf8PathBuf::from("tests/fixtures/minimal"),
                 config: None,
@@ -317,6 +338,7 @@ mod tests {
         assert_eq!(run(cli), ExitCode::from(EXIT_OK));
 
         let cli_err = Cli {
+            verbosity: None,
             command: Command::Build(BuildArgs {
                 input: Utf8PathBuf::from("nonexistent"),
                 output: Utf8PathBuf::from("out"),
@@ -341,7 +363,7 @@ mod tests {
             tiers: vec![],
             format: ReportFormat::Text,
         };
-        assert_eq!(list_command(args_text).unwrap(), EXIT_OK);
+        assert_eq!(list_command(args_text, Verbosity::Info).unwrap(), EXIT_OK);
 
         let args_json = ListArgs {
             input: Utf8PathBuf::from("tests/fixtures/minimal"),
@@ -349,7 +371,7 @@ mod tests {
             tiers: vec![],
             format: ReportFormat::Json,
         };
-        assert_eq!(list_command(args_json).unwrap(), EXIT_OK);
+        assert_eq!(list_command(args_json, Verbosity::Info).unwrap(), EXIT_OK);
 
         // Test list command with content error
         let dir = tempfile::tempdir().unwrap();
@@ -368,7 +390,10 @@ mod tests {
             tiers: vec![],
             format: ReportFormat::Text,
         };
-        assert_eq!(list_command(args_bad).unwrap(), EXIT_CONTENT);
+        assert_eq!(
+            list_command(args_bad, Verbosity::Info).unwrap(),
+            EXIT_CONTENT
+        );
     }
 
     #[test]
@@ -379,7 +404,7 @@ mod tests {
             tiers: vec![],
             format: ReportFormat::Text,
         };
-        assert_eq!(check_command(args).unwrap(), EXIT_OK);
+        assert_eq!(check_command(args, Verbosity::Info).unwrap(), EXIT_OK);
 
         let args_json = CheckArgs {
             input: Utf8PathBuf::from("tests/fixtures/minimal"),
@@ -387,6 +412,6 @@ mod tests {
             tiers: vec![],
             format: ReportFormat::Json,
         };
-        assert_eq!(check_command(args_json).unwrap(), EXIT_OK);
+        assert_eq!(check_command(args_json, Verbosity::Info).unwrap(), EXIT_OK);
     }
 }

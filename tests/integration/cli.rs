@@ -325,6 +325,37 @@ fn test_quiet_hides_warnings_but_not_errors() {
 }
 
 #[test]
+fn test_verbosity_filters_build_output_by_level() {
+    let warning_out = tempfile::tempdir().unwrap();
+    let warning = hideo()
+        .args(["build", "--verbosity", "warning", "--input"])
+        .arg(fixture("full"))
+        .arg("--output")
+        .arg(warning_out.path())
+        .output()
+        .unwrap();
+    assert!(warning.status.success(), "{}", stderr(&warning));
+    assert!(
+        stderr(&warning).contains("warning["),
+        "{}",
+        stderr(&warning)
+    );
+    assert!(stdout(&warning).is_empty(), "{}", stdout(&warning));
+
+    let error_out = tempfile::tempdir().unwrap();
+    let error = hideo()
+        .args(["build", "--verbosity", "error", "--input"])
+        .arg(fixture("full"))
+        .arg("--output")
+        .arg(error_out.path())
+        .output()
+        .unwrap();
+    assert!(error.status.success(), "{}", stderr(&error));
+    assert!(stderr(&error).is_empty(), "{}", stderr(&error));
+    assert!(stdout(&error).is_empty(), "{}", stdout(&error));
+}
+
+#[test]
 fn test_warnings_collected_and_counted() {
     let out = hideo()
         .args(["check", "--input"])

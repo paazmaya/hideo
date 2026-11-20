@@ -88,7 +88,13 @@ The configuration is a [TOML](https://toml.io) file. Pages are ordered by file p
 
 Useful `build` flags: `--diagrams native|external|off`, `--keep-typst DIR` (write the generated
 Typst for debugging), `--deny-unresolved` (exit 1 if an internal link does not resolve),
-`--jobs N`, `-q` (no warnings), `-v`.
+`--jobs N`, `-q` (no warnings), `-v` (debug verbosity).
+
+`--verbosity error|warning|info|debug` controls human-readable output for all commands. Each level
+includes more severe messages: `error` prints only errors, `warning` adds warnings, `info` also
+prints normal command output (the default), and `debug` adds build timing and statistics. JSON
+output remains complete for machine consumers. The legacy `-q` and `-v` flags are aliases for the
+`error` and `debug` levels.
 
 **Exit codes:** `0` success, `1` content or build error (a Markdown mistake names the page and
 line), `2` usage or configuration error.
