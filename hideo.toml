@@ -124,7 +124,7 @@ cover_pattern = "images/cover_front_{tier}.png"
 # ---------------------------------------------------------------------------
 [diagrams]
 # How diagrams are rendered:
-#   "external" - run `command` (mermaid-cli `mmdc`, or `mmdr`). Needs that tool installed.
+#   "external" - run `command` (`mmdc`, `mmdr`, or `gazu`). Needs that tool installed.
 #   "native"   - render in-process, no Node.js or Chromium. Only available when hideo
 #                was built with `--features native-diagrams`. Diagram types it cannot
 #                draw (sequence, class, ER, pie, gantt, ...) go to `command`, unless
@@ -137,12 +137,14 @@ backend = "external"
 # backend = "off"
 
 # The renderer program, used with "external" (and for the types "native" leaves to it).
-# Must not be empty when backend = "external". On Windows use "mmdc.cmd" if "mmdc"
-# is not found.
+# Must not be empty when backend = "external". Hideo detects `gazu` by its executable
+# name and uses its Pandoc-filter protocol instead of the arguments below. The theme is
+# passed through GAZU_CONFIG. On Windows use "mmdc.cmd" if "mmdc" is not found.
 # Default: "mmdc"
 command = "mmdc"
 # command = "mmdc.cmd"
 # command = "mmdr"
+# command = "gazu"
 
 # Arguments for `command`. These placeholders are replaced for every diagram:
 #   {input}  the Mermaid source file

@@ -12,14 +12,16 @@ The project is rewritten in Rust (the previous Node.js implementation was remove
 
 - Single binary with `build`, `check` and `list` commands; the Typst compiler and PDF exporter
   are embedded.
+- `--verbosity error|warning|info|debug` controls human-readable output; `-q` and `-v`
+  remain aliases for `error` and `debug`.
 - Strict Markdown profile with errors that name the page and line.
 - Page-qualified heading labels, cross-page links, an unresolved-link report and
   `--deny-unresolved`.
 - Cover, contents page with page numbers, hero images (scaled, cached, placeholders),
   tables with a repeating header row, lead-in paragraphs, external-link marker.
 - Mermaid diagrams through an `mmdc`-compatible command, with a disk cache, a timeout and
-  checks of the result; optional in-process renderer (`native-diagrams` feature) for
-  flowchart and state diagrams.
+  checks of the result, plus direct support for the `gazu` Pandoc-filter protocol;
+  optional in-process renderer (`native-diagrams` feature) for flowchart and state diagrams.
 - Tagged PDF with PDF/UA-1 validation on by default, table header cells (`TH`, column scope),
   decorative images as artifacts, alt text, document language and outline.
 - Reproducible output from `SOURCE_DATE_EPOCH`.

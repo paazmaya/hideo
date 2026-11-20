@@ -144,7 +144,10 @@ A ` ```mermaid ` code block becomes an image. Give it alt text after the fence l
 rendered by a command that follows the command line of `mmdc`
 ([mermaid-cli](https://github.com/mermaid-js/mermaid-cli), which needs
 [Node.js](https://nodejs.org) and a Chromium browser), configured under
-`[diagrams]`; [`mmdr`](https://github.com/1jehuang/mermaid-rs-renderer) works too. Results are cached, so only changed diagrams are rendered
+`[diagrams]`; [`mmdr`](https://github.com/1jehuang/mermaid-rs-renderer) and
+[`gazu`](https://crates.io/crates/gazu) work too. For `gazu`, hideo speaks its
+Pandoc-filter protocol, passes the Mermaid theme through `GAZU_CONFIG`, and accepts the
+default `mmdc`-shaped `args` unchanged. Results are cached, so only changed diagrams are rendered
 again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
 
 Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state

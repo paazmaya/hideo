@@ -1,9 +1,12 @@
-//! External diagram backend: runs an `mmdc`-compatible command (plan 7.7).
+//! External diagram backend: runs an `mmdc`-compatible command or the `gazu`
+//! Pandoc filter (plan 7.7).
 
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 use super::{DiagramError, DiagramRenderer, Theme};
@@ -12,14 +15,21 @@ pub struct ExternalRenderer {
     pub command: String,
     pub args: Vec<String>,
     pub timeout: Duration,
+    gazu: bool,
 }
 
 impl ExternalRenderer {
     pub fn new(command: &str, args: &[String], timeout_s: u64) -> Self {
+        let file_name = command.rsplit(['/', '\\']).next().unwrap_or(command);
         Self {
             command: command.to_string(),
             args: args.to_vec(),
             timeout: Duration::from_secs(timeout_s),
+            gazu: file_name
+                .strip_suffix(".exe")
+                .or_else(|| file_name.strip_suffix(".cmd"))
+                .unwrap_or(file_name)
+                .eq_ignore_ascii_case("gazu"),
         }
     }
 
@@ -38,16 +48,22 @@ impl ExternalRenderer {
     fn spawn(
         &self,
         args: &[String],
+        theme: &Path,
         stdout: std::fs::File,
         stderr: std::fs::File,
     ) -> std::io::Result<std::process::Child> {
         let run = |program: &str| {
-            Command::new(program)
+            let mut command = Command::new(program);
+            command
                 .args(args)
-                .stdin(Stdio::null())
                 .stdout(Stdio::from(stdout.try_clone()?))
-                .stderr(Stdio::from(stderr.try_clone()?))
-                .spawn()
+                .stderr(Stdio::from(stderr.try_clone()?));
+            if self.gazu {
+                command.stdin(Stdio::piped()).env("GAZU_CONFIG", theme);
+            } else {
+                command.stdin(Stdio::null());
+            }
+            command.spawn()
         };
         match run(&self.command) {
             // npm installs `mmdc.cmd` on Windows; Rust only looks for `.exe`.
@@ -61,6 +77,41 @@ impl ExternalRenderer {
             other => other,
         }
     }
+}
+
+fn gazu_ast(source: &str) -> String {
+    json!({
+        "pandoc-api-version": [1, 23, 1],
+        "meta": {},
+        "blocks": [{
+            "t": "CodeBlock",
+            "c": [["", ["mermaid"], []], source]
+        }]
+    })
+    .to_string()
+}
+
+fn gazu_svg(output: &str) -> Result<String, String> {
+    let ast: Value =
+        serde_json::from_str(output).map_err(|e| format!("invalid output AST: {e}"))?;
+    let block = ast
+        .get("blocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find(|block| {
+                block.get("t").and_then(Value::as_str) == Some("RawBlock")
+                    && block
+                        .pointer("/c/0")
+                        .and_then(Value::as_str)
+                        .is_some_and(|format| format.eq_ignore_ascii_case("html"))
+            })
+        })
+        .ok_or_else(|| "the diagram was not replaced with SVG output".to_string())?;
+    block
+        .pointer("/c/1")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "the SVG replacement is not a string".to_string())
 }
 
 /// The last `n` non-empty lines of `text`.
@@ -80,17 +131,32 @@ impl DiagramRenderer for ExternalRenderer {
         std::fs::write(&input, source)?;
         std::fs::write(&theme_path, &theme.json)?;
 
-        let args = self.substitute(&input, &output, &theme_path);
+        // gazu is a Pandoc filter, not an mmdc-compatible CLI. Keep accepting the
+        // default mmdc-shaped args, but invoke gazu with its own HTML protocol.
+        let args = if self.gazu {
+            vec!["html".to_string()]
+        } else {
+            self.substitute(&input, &output, &theme_path)
+        };
         // Output goes to files, not pipes, so a chatty child can never block on a full pipe.
         let mut child = self
             .spawn(
                 &args,
+                &theme_path,
                 std::fs::File::create(&out_log)?,
                 std::fs::File::create(&err_log)?,
             )
             .map_err(|e| {
                 DiagramError::RenderFailed(format!("cannot start `{}`: {e}", self.command))
             })?;
+
+        if self.gazu {
+            child
+                .stdin
+                .take()
+                .expect("gazu child stdin is piped")
+                .write_all(gazu_ast(source).as_bytes())?;
+        }
 
         let status = match child.wait_timeout(self.timeout)? {
             Some(status) => status,
@@ -114,6 +180,21 @@ impl DiagramRenderer for ExternalRenderer {
                 self.command
             )));
         }
+        if self.gazu {
+            let stdout = std::fs::read_to_string(&out_log)?;
+            return gazu_svg(&stdout).map_err(|reason| {
+                let stderr = std::fs::read_to_string(&err_log).unwrap_or_default();
+                let detail = if stderr.trim().is_empty() {
+                    reason
+                } else {
+                    format!("{reason}\n{}", tail(&stderr, 10))
+                };
+                DiagramError::RenderFailed(format!(
+                    "`{}` did not render the diagram: {detail}",
+                    self.command
+                ))
+            });
+        }
         std::fs::read_to_string(&output).map_err(|e| {
             DiagramError::RenderFailed(format!("`{}` did not write the SVG: {e}", self.command))
         })
@@ -124,7 +205,11 @@ impl DiagramRenderer for ExternalRenderer {
     }
 
     fn cache_id(&self) -> String {
-        format!("{}|{}", self.name(), self.args.join(" "))
+        if self.gazu {
+            format!("{}|pandoc-filter", self.name())
+        } else {
+            format!("{}|{}", self.name(), self.args.join(" "))
+        }
     }
 }
 
@@ -176,6 +261,39 @@ mod tests {
         );
         let args = r.substitute(Path::new("a.mmd"), Path::new("b.svg"), Path::new("t.json"));
         assert_eq!(args, ["-i", "a.mmd", "-o", "b.svg", "-c", "t.json"]);
+    }
+
+    #[test]
+    fn detects_gazu_command_names() {
+        for command in ["gazu", "gazu.exe", r"C:\tools\gazu.exe", "/tmp/gazu"] {
+            let renderer = ExternalRenderer::new(command, &[], 30);
+            assert!(renderer.gazu, "{command}");
+        }
+        assert!(!ExternalRenderer::new("mmdc", &[], 30).gazu);
+    }
+
+    #[test]
+    fn extracts_svg_from_gazu_ast() {
+        let output = json!({
+            "blocks": [{
+                "t": "RawBlock",
+                "c": ["html", "<svg><text>ok</text></svg>"]
+            }]
+        })
+        .to_string();
+        assert_eq!(gazu_svg(&output).unwrap(), "<svg><text>ok</text></svg>");
+    }
+
+    #[test]
+    fn gazu_unreplaced_block_reports_failure() {
+        let output = json!({
+            "blocks": [{
+                "t": "CodeBlock",
+                "c": [["", ["mermaid"], []], "not a diagram"]
+            }]
+        })
+        .to_string();
+        assert!(gazu_svg(&output).unwrap_err().contains("not replaced"));
     }
 
     #[test]
