@@ -90,6 +90,9 @@ Useful `build` flags: `--diagrams native|external|off`, `--keep-typst DIR` (writ
 Typst for debugging), `--deny-unresolved` (exit 1 if an internal link does not resolve),
 `--jobs N`, `-q` (no warnings), `-v` (debug verbosity).
 
+Build mode is fail-fast: rendering or compilation stops at the first error, and subsequent
+warnings and unresolved-link summaries are omitted. `check` mode still collects all diagnostics.
+
 `--verbosity error|warning|info|debug` controls human-readable output for all commands. Each level
 includes more severe messages: `error` prints only errors, `warning` adds warnings, `info` also
 prints normal command output (the default), and `debug` adds build timing and statistics. JSON
@@ -109,18 +112,18 @@ The annotated [hideo.toml](hideo.toml) in the root of this repository is the ful
 option, its default, the allowed range and the alternatives. Use it as the starting point for
 your own file. Anything you leave out falls back to the default.
 
-| Table             | What it controls                                                    |
-| ----------------- | ------------------------------------------------------------------- |
-| (top level)       | `tiers`, `ignore_prefixes`                                          |
-| `[book]`          | document language                                                   |
-| `[cover]`         | title, author, tier line, text panel size                           |
-| `[contents]`      | heading and number of columns                                       |
-| `[page]`          | page width and margins                                              |
-| `[images]`        | `dpi`, `jpeg_quality`, cover and contents images                    |
-| `[diagrams]`      | Mermaid backend, renderer command, timeout, theme                   |
-| `[build]`         | cache folder                                                        |
-| `[diagnostics]`   | `warnings_as_errors`                                                |
-| `[accessibility]` | tagged PDF and PDF/UA validation                                    |
+| Table             | What it controls                                  |
+| ----------------- | ------------------------------------------------- |
+| (top level)       | `tiers`, `ignore_prefixes`                        |
+| `[book]`          | document language                                 |
+| `[cover]`         | title, author, tier line, text panel size         |
+| `[contents]`      | heading and number of columns                     |
+| `[page]`          | page width and margins                            |
+| `[images]`        | `dpi`, `jpeg_quality`, cover and contents images  |
+| `[diagrams]`      | Mermaid backend, renderer command, timeout, theme |
+| `[build]`         | cache folder                                      |
+| `[diagnostics]`   | `warnings_as_errors`                              |
+| `[accessibility]` | tagged PDF and PDF/UA validation                  |
 
 Unknown keys are an error. Paths are relative to the config file, except `build.cache_dir`,
 which is relative to the output folder. Required keys: `tiers`, `book.lang` (the document
@@ -207,7 +210,6 @@ binary with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 `cargo binstall cargo-deny`. The rules are in [deny.toml](deny.toml): only permissive licenses are
 allowed, and the two advisories that cannot be fixed here (they sit inside Typst's bibliography
 code, which `hideo` does not use) are listed there with the reason.
-
 
 ```sh
 winget install WiXToolset.WiXToolset

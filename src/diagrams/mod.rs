@@ -11,8 +11,6 @@ pub mod native;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
-
 use crate::config::DEFAULT_DIAGRAM_THEME;
 use crate::error::{ErrorCode, HideoError, Warning, WarningCode};
 
@@ -276,9 +274,6 @@ fn disk_cache_key(source: &str, theme: &Theme, renderer: &dyn DiagramRenderer) -
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// SVG text plus font warnings, or the reason rendering failed.
-type CachedRender = Result<(String, Vec<String>), DiagramError>;
-
 /// Render with the disk cache `<cache_dir>/diagrams/<hash>.svg`.
 pub fn render_cached(
     renderer: &dyn DiagramRenderer,
@@ -353,31 +348,31 @@ pub struct RenderedDiagrams {
     pub rendered: usize,
 }
 
-/// Render every collected diagram. Errors are attributed to each occurrence (page and line).
+/// Render diagrams in source order, stopping after the first failure.
 pub fn render_all(
     collector: &DiagramCollector,
     renderer: &dyn DiagramRenderer,
     theme: &Theme,
     cache_dir: Option<&Path>,
 ) -> RenderedDiagrams {
-    let entries: Vec<(&String, &String)> = collector.sources.iter().collect();
-    let results: Vec<(&String, CachedRender)> = entries
-        .par_iter()
-        .map(|(vpath, source)| {
-            let result = if source.trim().is_empty() {
-                Err(DiagramError::RenderFailed(
-                    "the diagram is empty".to_string(),
-                ))
-            } else {
-                render_cached(renderer, theme, cache_dir, source)
-            };
-            (*vpath, result)
-        })
-        .collect();
+    let mut entries: Vec<(&String, &String)> = collector.sources.iter().collect();
+    entries.sort_by_key(|(vpath, _)| {
+        collector.occurrences[*vpath]
+            .iter()
+            .min()
+            .map(|o| (o.page.as_str(), o.line))
+            .unwrap_or(("", 0))
+    });
 
     let mut out = RenderedDiagrams::default();
-    for (vpath, result) in results {
-        let source = &collector.sources[vpath];
+    for (vpath, source) in entries {
+        let result = if source.trim().is_empty() {
+            Err(DiagramError::RenderFailed(
+                "the diagram is empty".to_string(),
+            ))
+        } else {
+            render_cached(renderer, theme, cache_dir, source)
+        };
         let occurrences = &collector.occurrences[vpath];
         match result {
             Ok((svg, fonts)) => {
@@ -398,10 +393,18 @@ pub fn render_all(
                 out.svgs.insert(vpath.clone(), svg);
             }
             Err(e) => {
-                for o in occurrences {
-                    out.errors
-                        .push(diagram_error(&o.page, o.line, source, &renderer.name(), &e));
-                }
+                let occurrence = occurrences
+                    .iter()
+                    .min()
+                    .expect("a collected diagram has an occurrence");
+                out.errors.push(diagram_error(
+                    &occurrence.page,
+                    occurrence.line,
+                    source,
+                    &renderer.name(),
+                    &e,
+                ));
+                break;
             }
         }
     }
@@ -701,7 +704,7 @@ classDiagram
     }
 
     #[test]
-    fn render_all_reports_every_occurrence_and_keeps_order() {
+    fn render_all_stops_after_first_error_in_source_order() {
         let mut c = DiagramCollector::default();
         c.request("a.md", 1, "graph A");
         c.request("b.md", 2, "graph A");
@@ -714,7 +717,14 @@ classDiagram
 
         let bad = fake(|_| Err(DiagramError::Timeout(30)));
         let out = render_all(&c, &bad, &Theme::embedded(), None);
-        assert_eq!(out.errors.len(), 3, "one error per occurrence");
+        assert_eq!(out.errors.len(), 1);
+        assert_eq!(out.errors[0].page.as_deref(), Some("a.md"));
+        assert_eq!(out.errors[0].line, Some(1));
+        assert_eq!(
+            bad.calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "later diagrams must not be rendered"
+        );
     }
 
     #[test]

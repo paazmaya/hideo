@@ -162,6 +162,23 @@ fn test_diagram_failure_names_page_and_line() {
 }
 
 #[test]
+fn test_diagram_failure_stops_backend_and_suppresses_follow_on_warnings() {
+    let f = fake_project(
+        "echo called >> \"$LOG\"\necho boom-from-renderer >&2\nexit 1",
+        "echo called>> \"%LOG%\"\r\necho boom-from-renderer 1>&2\r\nexit /b 1",
+    );
+    let out = tempfile::tempdir().unwrap();
+    let r = build(&f.root, out.path(), &[]);
+
+    assert_eq!(r.status.code(), Some(1));
+    let err = stderr(&r);
+    assert_eq!(err.matches("error[E004]").count(), 1, "{err}");
+    assert_eq!(calls(&f), 1, "rendering must stop at the first failure");
+    assert!(!err.contains("warning["), "{err}");
+    assert!(!err.contains("Unresolved links"), "{err}");
+}
+
+#[test]
 fn test_diagram_foreignobject_rejected() {
     let f = fake_project(
         "printf '<svg xmlns=\"http://www.w3.org/2000/svg\"><foreignObject/></svg>' > \"$1\"",

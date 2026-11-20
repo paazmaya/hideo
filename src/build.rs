@@ -77,6 +77,10 @@ pub fn run(config: &Config, options: &Options) -> Outcome {
     outcome.diagnostics.extend(discovery);
     if outcome.diagnostics.has_errors() {
         // A page that cannot be read would leave a hole in the book: build nothing.
+        if matches!(options.mode, Mode::Build(_)) {
+            outcome.diagnostics.errors.truncate(1);
+            outcome.diagnostics.warnings.clear();
+        }
         outcome.diagnostics.sort();
         return outcome;
     }
@@ -148,8 +152,16 @@ pub fn run(config: &Config, options: &Options) -> Outcome {
         }
         outcome.diagnostics.extend(prepared.diag);
         outcome.tiers.push(summary);
+        if matches!(options.mode, Mode::Build(_)) && outcome.diagnostics.has_errors() {
+            break;
+        }
     }
 
+    if matches!(options.mode, Mode::Build(_)) && outcome.diagnostics.has_errors() {
+        outcome.diagnostics.errors.truncate(1);
+        outcome.diagnostics.warnings.clear();
+        outcome.unresolved.clear();
+    }
     outcome.diagnostics.sort();
     outcome.unresolved.sort();
     outcome.unresolved.dedup();
@@ -903,27 +915,29 @@ mod tests {
                 .iter()
                 .any(|e| e.code == ErrorCode::E007)
         );
+        assert_eq!(outcome.diagnostics.errors.len(), 1);
+        assert!(outcome.diagnostics.warnings.is_empty());
+
+        let check_opt = Options {
+            mode: Mode::Check,
+            ..opt
+        };
+        let checked = run(&cfg, &check_opt);
         assert!(
-            outcome
+            checked
                 .diagnostics
                 .warnings
                 .iter()
                 .any(|w| w.message.contains("remote"))
         );
         assert!(
-            outcome
+            checked
                 .diagnostics
                 .warnings
                 .iter()
                 .any(|w| w.message.contains("not found"))
         );
-        assert!(
-            outcome
-                .diagnostics
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("cannot be used"))
-        );
+        assert!(checked.diagnostics.errors.is_empty());
     }
 
     #[test]
