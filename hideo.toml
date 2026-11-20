@@ -179,6 +179,16 @@ native_only = false
 cache_dir = ".hideo-cache"
 
 # ---------------------------------------------------------------------------
+# [links] - link handling
+# ---------------------------------------------------------------------------
+[links]
+# Convert unlinked email addresses in Markdown text to mailto: PDF links.
+# This improves accessibility and makes bare addresses actionable.
+# Default: true
+auto_mailto = true
+# auto_mailto = false
+
+# ---------------------------------------------------------------------------
 # [diagnostics] - how warnings are treated
 # ---------------------------------------------------------------------------
 [diagnostics]

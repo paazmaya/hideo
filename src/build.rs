@@ -384,6 +384,7 @@ fn prepare_tier(
             &mut links,
             &mut assets,
             (config.text_width_pt(), config.text_height_pt()),
+            config.links.auto_mailto,
         );
         diag.extend(assets.diag);
         body_images += assets.body_images;

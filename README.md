@@ -143,8 +143,9 @@ Not supported (errors): HTML blocks, footnotes, strikethrough, task lists, defin
 superscript and subscript. Inline HTML is dropped with a warning. `$` is always a literal dollar.
 
 Links: relative links between pages become PDF links; `https://` and `mailto:` links are kept
-(web links get a small arrow). Links into another tier cannot be followed in a separate PDF and
-are reported as _outside this PDF_.
+(web links get a small arrow). Bare email addresses become `mailto:` links by default; set
+`links.auto_mailto = false` to keep them as plain text. Links into another tier cannot be followed
+in a separate PDF and are reported as _outside this PDF_.
 
 ## Diagrams
 

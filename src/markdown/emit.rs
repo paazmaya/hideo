@@ -77,9 +77,10 @@ pub fn emit_page(
     links: &mut LinkMap,
     assets: &mut dyn AssetSink,
     text_area_pt: (f64, f64),
+    auto_mailto: bool,
 ) -> Emitted {
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut emitter = Emitter::new(page, links, assets, text_area_pt);
+        let mut emitter = Emitter::new(page, links, assets, text_area_pt, auto_mailto);
         let lines = emitter.blocks(None);
         (lines, emitter.diag)
     }));
@@ -126,6 +127,7 @@ struct Emitter<'a, 'l> {
     /// Inside a table cell: break long tokens and collect plain text for measuring.
     in_table: bool,
     plain: String,
+    auto_mailto: bool,
 }
 
 fn is_block_start(tag: &Tag) -> bool {
@@ -156,6 +158,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
         links: &'l mut LinkMap,
         assets: &'l mut dyn AssetSink,
         text_area_pt: (f64, f64),
+        auto_mailto: bool,
     ) -> Self {
         let events = Parser::new_ext(&page.body, parser_options())
             .into_offset_iter()
@@ -172,6 +175,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
             text_area_pt,
             in_table: false,
             plain: String::new(),
+            auto_mailto,
         }
     }
 
@@ -757,7 +761,13 @@ impl<'a, 'l> Emitter<'a, 'l> {
     fn escape_run(&mut self, text: &str, position: Position) -> String {
         if self.in_table {
             self.plain.push_str(text);
-            escape_text(&tables::break_long_tokens(text), position)
+            if self.auto_mailto {
+                email_link_markup(&tables::break_long_tokens(text), position)
+            } else {
+                escape_text(&tables::break_long_tokens(text), position)
+            }
+        } else if self.auto_mailto {
+            email_link_markup(text, position)
         } else {
             escape_text(text, position)
         }
@@ -835,6 +845,116 @@ impl<'a, 'l> Emitter<'a, 'l> {
             }
         }
     }
+}
+
+fn email_link_markup(text: &str, position: Position) -> String {
+    let spans = email_spans(text);
+    if spans.is_empty() {
+        return escape_text(text, position);
+    }
+
+    let mut out = String::new();
+    let mut start = 0;
+    for (email_start, email_end) in spans {
+        if start < email_start {
+            let segment = &text[start..email_start];
+            out.push_str(&escape_text(segment, position));
+        }
+        let email = &text[email_start..email_end];
+        out.push_str(&format!(
+            "#link({})[{}]",
+            typst_string(&format!("mailto:{email}")),
+            escape_text(email, Position::Inline)
+        ));
+        start = email_end;
+    }
+    if start < text.len() {
+        out.push_str(&escape_text(&text[start..], Position::Inline));
+    }
+    out
+}
+
+fn email_spans(text: &str) -> Vec<(usize, usize)> {
+    fn local_allowed(b: u8) -> bool {
+        b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'.' | b'!'
+                    | b'#'
+                    | b'$'
+                    | b'%'
+                    | b'&'
+                    | b'\''
+                    | b'*'
+                    | b'+'
+                    | b'-'
+                    | b'/'
+                    | b'='
+                    | b'?'
+                    | b'^'
+                    | b'_'
+                    | b'`'
+                    | b'{'
+                    | b'|'
+                    | b'}'
+                    | b'~'
+            )
+    }
+
+    fn valid_domain(domain: &str) -> bool {
+        let labels: Vec<&str> = domain.split('.').collect();
+        labels.len() >= 2
+            && labels.iter().all(|label| {
+                !label.is_empty()
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            })
+            && labels.last().is_some_and(|label| {
+                label.len() >= 2 && label.bytes().all(|b| b.is_ascii_alphabetic())
+            })
+    }
+
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'@' {
+            i += 1;
+            continue;
+        }
+        let mut local_start = i;
+        while local_start > 0 && local_allowed(bytes[local_start - 1]) {
+            local_start -= 1;
+        }
+        let mut domain_end = i + 1;
+        while domain_end < bytes.len()
+            && (bytes[domain_end].is_ascii_alphanumeric()
+                || matches!(bytes[domain_end], b'.' | b'-'))
+        {
+            domain_end += 1;
+        }
+        while domain_end > i + 1 && matches!(bytes[domain_end - 1], b'.' | b'-') {
+            domain_end -= 1;
+        }
+        if local_start < i
+            && i + 1 < domain_end
+            && !bytes[local_start..i].starts_with(b".")
+            && !bytes[local_start..i].ends_with(b".")
+        {
+            let domain = &text[i + 1..domain_end];
+            if valid_domain(domain) {
+                let span = (local_start, domain_end);
+                if spans.last().is_none_or(|&(_, end)| end <= span.0) {
+                    spans.push(span);
+                }
+            }
+        }
+        i = domain_end.max(i + 1);
+    }
+    spans
 }
 
 fn pulldown_level(level: u8) -> pulldown_cmark::HeadingLevel {
@@ -936,7 +1056,7 @@ mod tests {
     fn emit(body: &str) -> Emitted {
         let p = page(body);
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0))
+        emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0), true)
     }
 
     fn md(body: &str) -> String {
@@ -1070,10 +1190,30 @@ mod tests {
         // Unresolved: plain text, reported by the link map.
         let p = page("[gone](nope.md)");
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        let e = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0));
+        let e = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0), true);
         assert_eq!(e.markup.text, "gone");
         assert_eq!(links.unresolved.len(), 1);
         assert_eq!(links.unresolved[0].line, 1);
+    }
+
+    #[test]
+    fn bare_email_addresses_are_auto_linked_by_default() {
+        assert_eq!(
+            md("Contact first.last+tag@example.com or not-an-email."),
+            "Contact #link(\"mailto:first.last+tag@example.com\")[first.last+tag\\@example.com] or not-an-email."
+        );
+        assert_eq!(
+            md("Invalid names: a@localhost and .bad@example.com."),
+            "Invalid names: a\\@localhost and .bad\\@example.com."
+        );
+    }
+
+    #[test]
+    fn bare_email_auto_linking_can_be_disabled() {
+        let p = page("Contact user@example.com.");
+        let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
+        let e = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0), false);
+        assert_eq!(e.markup.text, r"Contact user\@example.com.");
     }
 
     #[test]
@@ -1308,7 +1448,7 @@ Inline <b>html</b> is dropped with a warning.
 ",
         );
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        let result = emit_page(&p, &mut links, &mut Panicking, (453.5, 700.0));
+        let result = emit_page(&p, &mut links, &mut Panicking, (453.5, 700.0), true);
         assert_eq!(result.diag.errors.len(), 1);
         assert_eq!(result.diag.errors[0].code, ErrorCode::E005);
         assert_eq!(result.diag.errors[0].page.as_deref(), Some("t/p.md"));
@@ -1395,7 +1535,7 @@ Inline <b>html</b> is dropped with a warning.
     fn test_missing_image_sink_and_file_link() {
         let p = page("![fallback](missing.png)");
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-        let e = emit_page(&p, &mut links, &mut NoneAssetSink, (453.5, 700.0));
+        let e = emit_page(&p, &mut links, &mut NoneAssetSink, (453.5, 700.0), true);
         assert_eq!(e.markup.text, "fallback");
 
         // Resolved::File test
@@ -1405,7 +1545,7 @@ Inline <b>html</b> is dropped with a warning.
         std::fs::write(t_dir.join("doc.pdf"), b"pdf").unwrap();
         let p2 = page("[doc](doc.pdf)");
         let mut links2 = LinkMap::new("t", std::slice::from_ref(&p2), [], dir.path());
-        let e2 = emit_page(&p2, &mut links2, &mut NoAssets, (453.5, 700.0));
+        let e2 = emit_page(&p2, &mut links2, &mut NoAssets, (453.5, 700.0), true);
         assert_eq!(e2.markup.text, "#link(\"doc.pdf\")[doc]");
     }
 
@@ -1420,7 +1560,7 @@ Inline <b>html</b> is dropped with a warning.
         let p = page("body text");
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
         let mut assets = NoAssets;
-        let mut emitter = Emitter::new(&p, &mut links, &mut assets, (453.5, 700.0));
+        let mut emitter = Emitter::new(&p, &mut links, &mut assets, (453.5, 700.0), true);
 
         // 1. line_at past end of events (line 183)
         assert_eq!(emitter.line_at(9999), p.byte_to_line(p.body.len()));
@@ -1584,7 +1724,8 @@ Inline <b>html</b> is dropped with a warning.
                 let body = format!("# Heading\n\nText [{label}](<{dest}>) and [again](<#heading>) end.\n");
                 let p = page(&body);
                 let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
-                let emitted = emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0));
+                let emitted =
+                    emit_page(&p, &mut links, &mut NoAssets, (453.5, 700.0), true);
                 prop_assert!(!emitted.diag.has_errors(), "{:?}", emitted.diag.errors);
                 let src = format!("{PRELUDE}{}", emitted.markup.text);
                 let world = HideoWorld::from_source(&src, Datetime::from_ymd(2000, 1, 1).unwrap());

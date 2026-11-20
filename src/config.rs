@@ -31,6 +31,8 @@ pub struct Config {
     pub build: BuildConfig,
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    pub links: LinksConfig,
 
     /// Required: the document language is never silently English (decision D11).
     pub book: BookConfig,
@@ -185,6 +187,19 @@ impl Default for BuildConfig {
 #[serde(deny_unknown_fields, default)]
 pub struct DiagnosticsConfig {
     pub warnings_as_errors: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LinksConfig {
+    /// Convert bare email addresses in Markdown text into `mailto:` PDF links.
+    pub auto_mailto: bool,
+}
+
+impl Default for LinksConfig {
+    fn default() -> Self {
+        Self { auto_mailto: true }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -379,6 +394,13 @@ title = "T"
         assert_eq!(c.ignore_prefixes, vec!["_", "."]);
         assert_eq!(c.build.cache_dir, ".hideo-cache");
         assert_eq!(c.diagrams.backend, DiagramBackendConfig::External);
+        assert!(c.links.auto_mailto);
+    }
+
+    #[test]
+    fn test_auto_mailto_config_can_be_disabled() {
+        let c = load(&format!("{MINIMAL}\n[links]\nauto_mailto = false\n")).unwrap();
+        assert!(!c.links.auto_mailto);
     }
 
     #[test]
