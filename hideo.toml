@@ -157,8 +157,9 @@ args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
 # Default: 30
 timeout_s = 30
 
-# Mermaid configuration JSON that sets fonts and colours. Unset by default: the
-# theme embedded in hideo is used, so no extra file is needed.
+# Mermaid configuration JSON that sets fonts and colours. If a custom theme omits
+# fontFamily, hideo adds "Readex Pro" at the root and under themeVariables.
+# Unset by default: the theme embedded in hideo is used, so no extra file is needed.
 # theme = "assets/mermaid-theme.json"
 
 # Only with backend = "native": render every diagram type natively instead of

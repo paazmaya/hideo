@@ -41,9 +41,35 @@ impl Theme {
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let json = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read diagram theme {}: {e}", path.display()))?;
-        serde_json::from_str::<serde_json::Value>(&json)
+        let mut value: serde_json::Value = serde_json::from_str(&json)
             .map_err(|e| format!("diagram theme {} is not valid JSON: {e}", path.display()))?;
-        Ok(Self { json })
+        let object = value.as_object_mut().ok_or_else(|| {
+            format!(
+                "diagram theme {} must contain a JSON object",
+                path.display()
+            )
+        })?;
+        object
+            .entry("fontFamily")
+            .or_insert_with(|| serde_json::Value::String("Readex Pro".into()));
+
+        let variables = object
+            .entry("themeVariables")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or_else(|| {
+                format!(
+                    "diagram theme {} field `themeVariables` must be a JSON object",
+                    path.display()
+                )
+            })?;
+        variables
+            .entry("fontFamily")
+            .or_insert_with(|| serde_json::Value::String("Readex Pro".into()));
+
+        Ok(Self {
+            json: serde_json::to_string(&value).expect("JSON value serialises"),
+        })
     }
 }
 
@@ -747,6 +773,39 @@ classDiagram
         assert_eq!(v["handDrawnSeed"], 1);
         assert_eq!(v["htmlLabels"], false);
         assert_eq!(v["flowchart"]["htmlLabels"], false);
+    }
+
+    #[test]
+    fn custom_theme_gets_required_font_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.json");
+        std::fs::write(
+            &path,
+            r##"{"theme":"base","themeVariables":{"primaryColor":"#fff"}}"##,
+        )
+        .unwrap();
+
+        let theme = Theme::from_file(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&theme.json).unwrap();
+        assert_eq!(value["fontFamily"], "Readex Pro");
+        assert_eq!(value["themeVariables"]["fontFamily"], "Readex Pro");
+        assert_eq!(value["themeVariables"]["primaryColor"], "#fff");
+    }
+
+    #[test]
+    fn custom_theme_preserves_explicit_fonts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.json");
+        std::fs::write(
+            &path,
+            r#"{"fontFamily":"Libertinus Serif","themeVariables":{"fontFamily":"DejaVu Sans Mono"}}"#,
+        )
+        .unwrap();
+
+        let theme = Theme::from_file(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&theme.json).unwrap();
+        assert_eq!(value["fontFamily"], "Libertinus Serif");
+        assert_eq!(value["themeVariables"]["fontFamily"], "DejaVu Sans Mono");
     }
 
     #[test]

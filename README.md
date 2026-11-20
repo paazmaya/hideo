@@ -158,6 +158,8 @@ rendered by a command that follows the command line of `mmdc`
 Pandoc-filter protocol, passes the Mermaid theme through `GAZU_CONFIG`, and accepts the
 default `mmdc`-shaped `args` unchanged. Results are cached, so only changed diagrams are rendered
 again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
+Custom Mermaid themes inherit `Readex Pro` as `fontFamily` at the root and under
+`themeVariables` when those fields are omitted.
 
 Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state
 diagrams in-process (no Node.js or Chromium; it uses the
