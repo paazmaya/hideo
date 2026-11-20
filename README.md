@@ -31,13 +31,21 @@ cargo install --path . --features native-diagrams   # also render some diagrams 
 
 ## Quick start
 
+1. Create a folder for the book and copy the annotated [hideo.toml](hideo.toml) from this
+   repository into it. The file lists every option with its default value and the alternatives
+   in comments, so delete what you do not need. Only three settings have no default and must
+   be set: `tiers`, `book.lang` and `cover.title`.
+2. Add one folder per tier with the pages, and the images (layout below).
+3. Run:
+
 ```sh
 hideo check  --input book            # validate, write nothing
 hideo list   --input book            # pages in PDF order
 hideo build  --input book --output pdf-output
 ```
 
-`book/` contains a `hideo.toml` (see below), one folder per tier, and the images:
+`book/` contains a `hideo.toml` (see [Configuration](#configuration-hideotoml)), one folder per
+tier, and the images:
 
 ```text
 book/
@@ -91,10 +99,27 @@ epoch, UTC), or 2000-01-01T00:00:00Z when it is unset. An invalid value is an er
 
 ## Configuration (`hideo.toml`)
 
-See the annotated [hideo.toml](hideo.toml). Unknown keys are an error. Paths are relative to the
-config file, except `build.cache_dir`, which is relative to the output folder. Required keys:
-`tiers`, `book.lang` (the document language, a [BCP 47](https://www.rfc-editor.org/info/bcp47) tag such as `fi` or `en-GB`: it is never
-silently English) and `cover.title`.
+The annotated [hideo.toml](hideo.toml) in the root of this repository is the full reference: every
+option, its default, the allowed range and the alternatives. Use it as the starting point for
+your own file. Anything you leave out falls back to the default.
+
+| Table             | What it controls                                                    |
+| ----------------- | ------------------------------------------------------------------- |
+| (top level)       | `tiers`, `ignore_prefixes`                                          |
+| `[book]`          | document language                                                   |
+| `[cover]`         | title, author, tier line, text panel size                           |
+| `[contents]`      | heading and number of columns                                       |
+| `[page]`          | page width and margins                                              |
+| `[images]`        | `dpi`, `jpeg_quality`, cover and contents images                    |
+| `[diagrams]`      | Mermaid backend, renderer command, timeout, theme                   |
+| `[build]`         | cache folder                                                        |
+| `[diagnostics]`   | `warnings_as_errors`                                                |
+| `[accessibility]` | tagged PDF and PDF/UA validation                                    |
+
+Unknown keys are an error. Paths are relative to the config file, except `build.cache_dir`,
+which is relative to the output folder. Required keys: `tiers`, `book.lang` (the document
+language, a [BCP 47](https://www.rfc-editor.org/info/bcp47) tag such as `fi` or `en-GB`: it is
+never silently English) and `cover.title`. A configuration error exits with code 2.
 
 ## Markdown profile
 
@@ -174,8 +199,19 @@ binary with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 allowed, and the two advisories that cannot be fixed here (they sit inside Typst's bibliography
 code, which `hideo` does not use) are listed there with the reason.
 
-CI: [Semaphore](https://semaphoreci.com) (Linux, macOS) and
-[AppVeyor](https://www.appveyor.com) (Windows); the configuration is in `.semaphore/` and `appveyor.yml`.
+
+```sh
+winget install WiXToolset.WiXToolset
+cargo install cargo-wix
+cargo wix -b "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+```
+
+Cross compile to Windows MSVC target when not using Windows:
+
+```sh
+cargo install --locked cargo-xwin
+cargo xwin run --target x86_64-pc-windows-msvc
+```
 
 ## Background for the project name
 

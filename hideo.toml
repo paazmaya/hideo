@@ -1,46 +1,203 @@
-# hideo.toml - Example configuration
+# hideo.toml - annotated reference configuration
+#
+# Every option hideo understands is listed here, with its default. Copy this file
+# into your book folder (next to the tier folders) and delete what you do not need:
+# anything left out falls back to the default shown.
+#
+# Conventions used below:
+#   - An active line (`key = value`) shows the default value, unless marked REQUIRED,
+#     where the value is only an example because there is no default.
+#   - A commented line (`# key = value`) is either an alternative value or an option
+#     that is unset by default.
+#   - Unknown keys and unknown tables are an error (exit code 2), so typos are caught.
+#   - Paths are relative to this file, except `build.cache_dir`, which is relative to
+#     the output folder.
+#   - Lengths ending in `_mm` are millimetres. Pages are always A4 (297 mm high).
+
+# ---------------------------------------------------------------------------
+# Top level
+# ---------------------------------------------------------------------------
+
+# REQUIRED. Tier folders, in the order they are built. One PDF is produced per tier.
+# Each name is a folder next to this file. Must not be empty or contain duplicates,
+# "." / "..", or path separators.
 tiers = ["required", "additional", "bonus"]
+
+# Files and folders whose names start with one of these prefixes are ignored when
+# looking for pages.
+# Default: ["_", "."]
 ignore_prefixes = ["_", "."]
 
-[page]
-width_mm = 210
-margin_x_mm = 20
-margin_y_mm = 18
-hero_height_mm = 118.125
+# ---------------------------------------------------------------------------
+# [book] - REQUIRED table
+# ---------------------------------------------------------------------------
+[book]
+# REQUIRED. Language of the document, a BCP 47 tag such as "fi", "en", "en-GB",
+# "zh-Hans". There is deliberately no default: the language is never silently English.
+# It is set in the PDF and drives hyphenation. A single page can override it with
+# `lang:` in its frontmatter.
+lang = "en"
 
-[images]
-dpi = 200
-jpeg_quality = 70
-contents_hero = "images/contents.png"
-cover_pattern = "images/cover_front_{tier}.png"
-
+# ---------------------------------------------------------------------------
+# [cover] - the front page
+# ---------------------------------------------------------------------------
 [cover]
+# REQUIRED, must not be blank. Shown on the cover and used as the PDF title.
 title = "Book title"
-author = "Author name"
+
+# Author name, shown on the cover and set as the PDF author.
+# Default: "" (empty)
+author = ""
+
+# Line under the title. `{Tier}` is replaced with the capitalised tier name
+# ("Required"), `{tier}` with the tier name as written ("required").
+# Default: "{Tier} course material"
 tier_line = "{Tier} course material"
+# tier_line = "{Tier}"
+# tier_line = "Kurssimateriaali: {tier}"
+
+# Width of the panel that holds the cover text, and how far it is moved from the
+# page edge, in millimetres.
+# Default: 170 and 20
 panel_width_mm = 170
 panel_offset_mm = 20
 
+# ---------------------------------------------------------------------------
+# [contents] - the contents page
+# ---------------------------------------------------------------------------
 [contents]
+# Heading of the contents page. Translate it for non-English books.
+# Default: "Contents"
+title = "Contents"
+# title = "Sisällys"
+
+# Number of columns in the contents list, 1 to 4.
+# Default: 2
 columns = 2
-title = "Sisällys"
 
+# ---------------------------------------------------------------------------
+# [page] - page geometry
+# ---------------------------------------------------------------------------
+[page]
+# Page width. Must be greater than twice margin_x_mm.
+# Default: 210 (A4)
+width_mm = 210
+
+# Left and right margin, and top and bottom margin.
+# Default: 20 and 18
+margin_x_mm = 20
+margin_y_mm = 18
+
+# Height of the hero image area (the default is 210 mm * 9/16, a 16:9 picture
+# across a full A4 width). Accepted and validated by the parser, but not yet used
+# by the layout: heroes are currently scaled to the page width and keep their own
+# aspect ratio.
+# Default: 118.125
+hero_height_mm = 118.125
+
+# ---------------------------------------------------------------------------
+# [images] - image handling
+# ---------------------------------------------------------------------------
+[images]
+# Images are downscaled to this resolution for the page width and re-encoded as JPEG,
+# which keeps the PDF small. 72 to 600.
+# Default: 200
+dpi = 200
+# dpi = 300   # print quality, larger PDF
+# dpi = 150   # screen reading, smaller PDF
+
+# JPEG quality, 1 (smallest) to 100 (best).
+# Default: 70
+jpeg_quality = 70
+
+# Cover image for each tier. `{tier}` is replaced with the tier name. A tier whose
+# cover file does not exist is built without a cover image.
+# Default: "images/cover_front_{tier}.png"
+cover_pattern = "images/cover_front_{tier}.png"
+# cover_pattern = "images/cover.png"   # one cover shared by all tiers (no {tier})
+
+# Image across the top of the contents page. Unset by default: no image.
+# contents_hero = "images/contents.png"
+
+# ---------------------------------------------------------------------------
+# [diagrams] - Mermaid diagrams (```mermaid code blocks)
+# ---------------------------------------------------------------------------
 [diagrams]
+# How diagrams are rendered:
+#   "external" - run `command` (mermaid-cli `mmdc`, or `mmdr`). Needs that tool installed.
+#   "native"   - render in-process, no Node.js or Chromium. Only available when hideo
+#                was built with `--features native-diagrams`. Diagram types it cannot
+#                draw (sequence, class, ER, pie, gantt, ...) go to `command`, unless
+#                native_only is set.
+#   "off"      - do not render diagrams; a page containing one fails the build.
+# Can be overridden on the command line with `hideo build --diagrams <backend>`.
+# Default: "external"
 backend = "external"
-command = "mmdc"
-args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
-timeout_s = 30
-theme = "assets/mermaid-theme.json"
+# backend = "native"
+# backend = "off"
 
+# The renderer program, used with "external" (and for the types "native" leaves to it).
+# Must not be empty when backend = "external". On Windows use "mmdc.cmd" if "mmdc"
+# is not found.
+# Default: "mmdc"
+command = "mmdc"
+# command = "mmdc.cmd"
+# command = "mmdr"
+
+# Arguments for `command`. These placeholders are replaced for every diagram:
+#   {input}  the Mermaid source file
+#   {output} the SVG file that must be written
+#   {theme}  the theme / config JSON file (see `theme` below)
+# Default: ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
+args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
+
+# Seconds before one renderer run is stopped and counted as a failure.
+# Default: 30
+timeout_s = 30
+
+# Mermaid configuration JSON that sets fonts and colours. Unset by default: the
+# theme embedded in hideo is used, so no extra file is needed.
+# theme = "assets/mermaid-theme.json"
+
+# Only with backend = "native": render every diagram type natively instead of
+# handing the unsupported ones to `command`. Types the native renderer cannot draw
+# then fail the build.
+# Default: false
+native_only = false
+
+# ---------------------------------------------------------------------------
+# [build] - build behaviour
+# ---------------------------------------------------------------------------
 [build]
+# Folder for cached diagrams and processed images, relative to the output folder
+# (`--output`, default "pdf-output"). Only changed diagrams and images are
+# processed again. Safe to delete.
+# Default: ".hideo-cache"
 cache_dir = ".hideo-cache"
 
+# ---------------------------------------------------------------------------
+# [diagnostics] - how warnings are treated
+# ---------------------------------------------------------------------------
 [diagnostics]
+# true  = any warning (skipped heading level, non-descriptive link text, dropped
+#         inline HTML, ...) fails the build. Good for CI.
+# false = warnings are printed and the build continues.
+# Default: false
 warnings_as_errors = false
+# warnings_as_errors = true
 
-[book]
-lang = "fi"
-
+# ---------------------------------------------------------------------------
+# [accessibility] - tagged PDF and PDF/UA
+# ---------------------------------------------------------------------------
 [accessibility]
+# Write a tagged PDF (document structure for screen readers).
+# Default: true
 tagged = true
+
+# Validate the PDF against PDF/UA-1. A violation fails the build and names the
+# page and line. Requires tagged = true.
+# Default: true
 pdf_ua = true
+# To switch both off (not recommended):
+# tagged = false
+# pdf_ua = false
