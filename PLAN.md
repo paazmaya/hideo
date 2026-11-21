@@ -6,24 +6,6 @@ Usage and behaviour are described in [README.md](README.md).
 
 ## 1. First CI run (needs a push)
 
-### Semaphore (`.semaphore/semaphore.yml`)
-
-- [ ] The pipeline starts. The `change_in([...], {default_branch: 'main'})` conditions are accepted, jobs
-      run for changes under `src/`, `tests/`, `assets/` and the Cargo files, and a docs-only commit starts
-      none of them.
-- [ ] The log shows `rustc -V`. If Rust is preinstalled on the image, delete the rustup install line from
-      the prologue of both Semaphore files (`rust-toolchain.toml` picks the toolchain either way).
-- [ ] The Linux block (fmt, clippy, test, fixture built twice with identical PDFs), MSRV (Rust 1.92), and, on
-      `main` and tags, and Test (macOS) all pass.
-- [ ] The `cache delete` plus `cache store` pattern with a fallback key works: a second run with a changed
-      `Cargo.lock` restores the fallback copy and recompiles only what changed.
-- [ ] The "Dependencies" block (a separate cheap job, no compile) installs `cargo-deny` with `cargo binstall` and `cargo deny check` passes. If
-      the binstall install script fails on the image, fall back to `cargo install cargo-deny --locked`.
-- [ ] Compare the cost of restoring and storing the `target` caches (Linux, macOS) with the compile time
-      they save. If one costs more, keep only the registry cache for that platform.
-- [ ] Check the minutes used per push against the open source plan's allowance, and revisit the rule that
-      limits the macOS job to `main` and tags.
-- [ ] The README badge reads "passing".
 
 ### AppVeyor (`appveyor.yml`)
 

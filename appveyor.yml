@@ -44,13 +44,17 @@ cache:
 
 install:
   - ps: |
+      $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+      $env:PATH = "$cargoBin;$env:PATH"
       if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
         Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
         .\rustup-init.exe -y --default-host x86_64-pc-windows-msvc
         Remove-Item rustup-init.exe
       }
-      rustup toolchain install 1.92.0 --profile minimal
-      rustup default 1.92.0
+      & (Join-Path $cargoBin "rustup.exe") toolchain install 1.92.0 --profile minimal
+      if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
+      & (Join-Path $cargoBin "rustup.exe") default 1.92.0
+      if ($LASTEXITCODE -ne 0) { throw "rustup default failed" }
   - set PATH=%USERPROFILE%\.cargo\bin;%PATH%
   - rustup show
   - rustc -V
