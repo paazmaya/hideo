@@ -1,19 +1,23 @@
-//! Frontmatter: a deliberately tiny `key: value` subset (plan F4).
-//!
-//! Hand-written because the profile is much narrower than YAML and "anything else is an error".
-
 use crate::error::{ErrorCode, HideoError};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Frontmatter {
+    /// Required page title, shown in the contents and used as the PDF page title.
     pub title: Option<String>,
+    /// Required relative hero image path.
     pub hero: Option<String>,
+    /// Optional page subtitle.
     pub subtitle: Option<String>,
+    /// Optional page author.
     pub author: Option<String>,
+    /// Optional language override for this page.
     pub lang: Option<String>,
+    /// Optional alternate text for the hero image.
     pub hero_alt: Option<String>,
     /// Number of lines occupied by the frontmatter including both `---` fences, so that a
     /// 0-based body line index maps to a file line by `body_line_offset + index + 1`.
+    #[serde(skip)]
     pub body_line_offset: usize,
 }
 
@@ -74,8 +78,8 @@ pub fn normalize_text(raw: &str) -> String {
 
 /// Split normalised text into frontmatter and body.
 pub fn parse(content: &str) -> Result<(Frontmatter, String), FrontmatterError> {
-    let content = normalize_text(content);
-    let lines: Vec<&str> = content.split('\n').collect();
+    let normalized = normalize_text(content);
+    let lines: Vec<&str> = normalized.split('\n').collect();
 
     if lines.first().map(|l| l.trim_end()) != Some("---") {
         return Err(FrontmatterError {
@@ -96,69 +100,20 @@ pub fn parse(content: &str) -> Result<(Frontmatter, String), FrontmatterError> {
         });
     };
 
-    let mut fm = Frontmatter {
-        body_line_offset: close + 1,
-        ..Default::default()
-    };
-    let mut seen: Vec<&str> = Vec::new();
+    let mut canonical_lines = lines;
+    canonical_lines[0] = "---";
+    canonical_lines[close] = "---";
+    let canonical = canonical_lines.join("\n");
 
-    for line in &lines[1..close] {
-        // Indented lines, blanks and comments are ignored.
-        if line.trim().is_empty() || line.starts_with(char::is_whitespace) || line.starts_with('#')
-        {
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let key = key.trim();
-        if seen.contains(&key) {
-            continue; // duplicate keys: first wins
-        }
-        seen.push(key);
-        let value = unquote(value.trim());
-        match key {
-            "title" => fm.title = Some(value),
-            "hero" => fm.hero = Some(value),
-            "subtitle" => fm.subtitle = Some(value),
-            "author" => fm.author = Some(value),
-            "lang" => fm.lang = Some(value),
-            "hero_alt" => fm.hero_alt = Some(value),
-            _ => {}
-        }
-    }
-
-    // `split('\n')` gives a trailing empty element for a final newline; keep the body as-is
-    // so byte offsets line up with a plain re-join.
-    let body = lines[close + 1..].join("\n");
-    Ok((fm, body))
-}
-
-/// Remove matching surrounding quotes. `\"` inside double quotes and `\'` inside single
-/// quotes are unescaped (so are `\\`).
-fn unquote(value: &str) -> String {
-    let bytes = value.as_bytes();
-    if bytes.len() >= 2 {
-        let q = bytes[0];
-        if (q == b'"' || q == b'\'') && bytes[bytes.len() - 1] == q {
-            let inner = &value[1..value.len() - 1];
-            let mut out = String::with_capacity(inner.len());
-            let mut chars = inner.chars().peekable();
-            while let Some(c) = chars.next() {
-                if c == '\\'
-                    && let Some(&next) = chars.peek()
-                    && (next == q as char || next == '\\')
-                {
-                    out.push(next);
-                    chars.next();
-                    continue;
-                }
-                out.push(c);
+    let (mut fm, body) =
+        markdown_frontmatter::parse::<Frontmatter>(&canonical).map_err(|error| {
+            FrontmatterError {
+                message: format!("invalid frontmatter: {error}"),
+                line: 1,
             }
-            return out;
-        }
-    }
-    value.to_string()
+        })?;
+    fm.body_line_offset = close + 1;
+    Ok((fm, body.to_string()))
 }
 
 #[cfg(test)]
@@ -189,14 +144,14 @@ mod tests {
     }
 
     #[test]
-    fn test_frontmatter_duplicate_key_first_wins() {
-        let f = fm("---\ntitle: One\ntitle: Two\n---\n");
-        assert_eq!(f.title.as_deref(), Some("One"));
+    fn test_frontmatter_duplicate_key_is_rejected_by_yaml() {
+        let error = parse("---\ntitle: One\ntitle: Two\n---\n").unwrap_err();
+        assert!(error.message.contains("invalid frontmatter"));
     }
 
     #[test]
     fn test_frontmatter_indented_lines_ignored() {
-        let f = fm("---\ntitle: One\n  subtitle: nope\n\thero: nope\n---\n");
+        let f = fm("---\ntitle: One\nmetadata:\n  subtitle: nope\n  hero: nope\n---\n");
         assert_eq!(f.subtitle, None);
         assert_eq!(f.hero, None);
     }
@@ -233,8 +188,7 @@ mod tests {
         };
         assert_eq!(format!("{err}"), "test error");
 
-        let (f, _) =
-            parse("---\ntitle: T\nhero: H\nno_colon_line\nunknown_key: val\n---\n").unwrap();
+        let (f, _) = parse("---\ntitle: T\nhero: H\nunknown_key: val\n---\n").unwrap();
         assert_eq!(f.title.as_deref(), Some("T"));
     }
 
@@ -255,14 +209,14 @@ mod tests {
 
     #[test]
     fn test_frontmatter_colon_in_value() {
-        let f = fm("---\ntitle: Part 1: The start\nhero: https://x.example/a.png\n---\n");
+        let f = fm("---\ntitle: \"Part 1: The start\"\nhero: https://x.example/a.png\n---\n");
         assert_eq!(f.title.as_deref(), Some("Part 1: The start"));
         assert_eq!(f.hero.as_deref(), Some("https://x.example/a.png"));
     }
 
     #[test]
     fn test_frontmatter_escaped_quotes() {
-        let f = fm("---\ntitle: \"Say \\\"hi\\\"\"\nsubtitle: 'it\\'s'\n---\n");
+        let f = fm("---\ntitle: \"Say \\\"hi\\\"\"\nsubtitle: 'it''s'\n---\n");
         assert_eq!(f.title.as_deref(), Some("Say \"hi\""));
         assert_eq!(f.subtitle.as_deref(), Some("it's"));
     }

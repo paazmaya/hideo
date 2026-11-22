@@ -77,6 +77,19 @@ hero_alt: "A mountain at dawn" # optional: makes the hero real content with alt 
 Body in the Markdown profile below.
 ```
 
+The frontmatter keys are:
+
+| Key        | Required | Purpose                                                                          |
+| ---------- | -------- | -------------------------------------------------------------------------------- |
+| `title`    | Yes      | Page title shown in the contents and PDF metadata.                               |
+| `hero`     | Yes      | Hero image path, resolved next to the page and then relative to the book folder. |
+| `subtitle` | No       | Subtitle shown on the page.                                                      |
+| `author`   | No       | Author name shown on the page.                                                   |
+| `lang`     | No       | Page language override when it differs from `book.lang`.                         |
+| `hero_alt` | No       | Alternate text that makes the hero image meaningful PDF content.                 |
+
+A build is halted when any required frontmatter key is missing or empty. No PDF is generated for the affected tier.
+
 The configuration is a [TOML](https://toml.io) file. Pages are ordered by file path with a case-insensitive natural sort (`2_a.md` before
 `10_a.md`). Files and folders whose names start with `_` or `.` are ignored.
 

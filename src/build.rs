@@ -776,6 +776,7 @@ fn keep_typst(dir: &Utf8Path, files: &BTreeMap<String, Vec<u8>>) -> std::io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn minimal_config() -> Config {
         Config::from_toml(
@@ -816,6 +817,46 @@ mod tests {
         std::fs::create_dir_all(&req_dir).unwrap();
         std::fs::write(req_dir.join("p.md"), "---\nhero: h\n---\nx").unwrap(); // missing title
         assert!(generate(&bad_cfg, &bad_opt, "required").is_none());
+    }
+
+    #[test]
+    fn test_build_halts_when_required_frontmatter_key_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let req_dir = dir.path().join("required");
+        fs::create_dir_all(&req_dir).unwrap();
+        fs::write(
+            req_dir.join("p.md"),
+            "---\ntitle: Missing hero\n---\nBody\n",
+        )
+        .unwrap();
+
+        let cfg = Config::from_toml(
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+            Utf8Path::new(dir.path().to_str().unwrap()),
+        )
+        .unwrap();
+        let output = dir.path().join("pdf-output");
+        let opt = Options {
+            source_dir: Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(output.clone()).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2025, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+
+        let outcome = run(&cfg, &opt);
+        assert!(outcome.diagnostics.has_errors());
+        assert!(outcome.diagnostics.errors.iter().any(|error| {
+            error
+                .message
+                .contains("missing required frontmatter key `hero`")
+        }));
+        assert_eq!(outcome.stats.pdfs, 0);
+        assert!(!output.join("required.pdf").exists());
     }
 
     #[test]

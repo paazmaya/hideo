@@ -14,33 +14,34 @@ default = []
 native-diagrams = ["dep:mermaid-rs-renderer"]
 
 [dependencies]
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6.9", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-toml = "1.2"
+toml = "1.2.2+spec-1.1.0"
 serde_json = "1"
+markdown-frontmatter = { version = "0.5.1", default-features = false, features = ["yaml"] }
 pulldown-cmark = { version = "0.13.6", default-features = false }
 typst = "=0.15.1"
 typst-layout = "=0.15.1"
 typst-pdf = "=0.15.1"
 typst-kit = { version = "=0.15.1", features = ["embedded-fonts"] }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-camino = "1.2"
-percent-encoding = "2.3"
-walkdir = "2.5"
-alphanumeric-sort = "1.5"
-rayon = "1.12"
-blake3 = "1.8"
-thiserror = "2"
-tempfile = "3.27"
-wait-timeout = "0.2"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+camino = "1.2.6"
+percent-encoding = "2.3.2"
+walkdir = "2.5.1"
+alphanumeric-sort = "1.5.8"
+rayon = "1.12.0"
+blake3 = "1.8.7"
+thiserror = "2.0.21"
+tempfile = "3.27.0"
+wait-timeout = "0.2.1"
 mermaid-rs-renderer = { version = "0.3.1", optional = true, default-features = false }
 
 [dev-dependencies]
-assert_cmd = "2.2"
-predicates = "3.1"
-insta = "1.49"
-proptest = "1.12"
-lopdf = { version = "0.47", default-features = false, features = ["rayon"] }
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+insta = "1.49.0"
+proptest = "1.12.0"
+lopdf = { version = "0.47.0", default-features = false, features = ["rayon"] }
 typst-render = "=0.15.1"
 
 [profile.dev]

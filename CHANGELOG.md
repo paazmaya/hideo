@@ -3,13 +3,21 @@
 This changelog covers the version history and possible upcoming changes.
 It follows the guidance from https://keepachangelog.com/en/1.0.0/.
 
-## Unreleased `v0.1.0` (2026-11-22)
+## Unreleased
+
+- YAML frontmatter parsing uses `markdown-frontmatter` with only the YAML feature enabled.
+- Frontmatter keys are documented: `title` and `hero` are required; `subtitle`, `author`,
+  `lang`, and `hero_alt` are optional. Builds halt and generate no PDF for a tier when a
+  required key is missing or empty.
+
+## `v0.1.0` (2026-11-22)
 
 - Single binary with `build`, `check` and `list` commands; the Typst compiler and PDF exporter
   are embedded.
 - `--verbosity error|warning|info|debug` controls human-readable output; `-q` and `-v`
   remain aliases for `error` and `debug`.
 - Strict Markdown profile with errors that name the page and line.
+
 - Page-qualified heading labels, cross-page links, an unresolved-link report and
   `--deny-unresolved`.
 - Cover, contents page with page numbers, hero images (scaled, cached, placeholders),
