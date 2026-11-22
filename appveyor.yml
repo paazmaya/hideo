@@ -107,16 +107,3 @@ artifacts:
     name: hideo-windows-archive
   - path: hideo-*-x86_64-pc-windows-msvc.zip.sha256
     name: hideo-windows-checksum
-
-deploy:
-  - provider: GitHub
-    auth_token:
-      secure: <encrypted GitHub token>
-    description: "Windows build of hideo"
-    artifact: /hideo-.*-x86_64-pc-windows-msvc\.zip(\.sha256)?/
-    tag: $(APPVEYOR_REPO_TAG_NAME)
-    draft: true
-    prerelease: false
-    force_update: true
-    on:
-      APPVEYOR_REPO_TAG: true

@@ -1,25 +1,6 @@
 # hideo: open work
 
-Last updated 2026-11-20. This file lists only what is still to do. Everything in section 1 to 3 needs
-something that cannot be done from a local session: a push to GitHub, a version tag, or a person.
-Usage and behaviour are described in [README.md](README.md).
-
-## 1. First CI run (needs a push)
-
-
-### AppVeyor (`appveyor.yml`)
-
-- [ ] Enable the repository in AppVeyor. Encrypt a GitHub token (Account, Encrypt YAML) and replace
-      `<encrypted GitHub token>` in the `deploy` section.
-- [ ] The log shows whether rustup is preinstalled on the `Visual Studio 2022` image. If it is, delete the
-      install step.
-- [ ] Record the job duration on the 2-core VM. If it approaches the plan's per-job limit, try the 4-core
-      configuration, or move further steps to Semaphore.
-- [ ] Check that restoring and saving the `%USERPROFILE%\.cargo\registry\cache` entry is faster than
-      downloading the crates. If not, remove the entry.
-- [ ] The Windows run passes, including the `windows-paths` fixture and the reproducibility check.
-
-## 2. First release (needs a tag)
+## First release (needs a tag)
 
 Tag a commit that changed code. `skip_commits` on AppVeyor would skip a tag that points at a docs-only
 commit.
@@ -40,7 +21,7 @@ commit.
       binary crate). Run `cargo publish --dry-run` first and check the package size against the crates.io
       limit of 10 MB; the embedded fonts and test fixtures count towards it.
 
-## 3. Needs a person
+## Needs a person
 
 - [ ] **Screen-reader pass with NVDA.** Cover, contents page and a table-heavy page of a built PDF. Check
       that headings and the outline navigate, that table header cells are announced with their column, that
@@ -56,7 +37,7 @@ commit.
 - [ ] **Cover text.** Confirm the wording of the cover title, author and line template in `hideo.toml`.
 - [ ] Check the `pdfa.org` link in the README by hand; it answers 403 to scripts.
 
-## 4. Optional
+## Optional
 
 - [ ] **Table rows between 70 % and 100 % of a page** may split (`TALL_ROW_SHARE` in
       `src/markdown/tables.rs`), because the row height is only estimated. Tune the threshold on real
