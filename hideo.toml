@@ -23,6 +23,14 @@
 # "." / "..", or path separators.
 tiers = ["required", "additional", "bonus"]
 
+# Optional tier-specific cover subtitle overrides. The tier names must also appear in `tiers`.
+# When omitted, the `[cover]` subtitle below is used.
+# [tier.required]
+# subtitle = "Core course material"
+#
+# [tier.bonus]
+# subtitle = "Further reading"
+
 # Files and folders whose names start with one of these prefixes are ignored when
 # looking for pages.
 # Default: ["_", "."]
@@ -49,12 +57,14 @@ title = "Book title"
 # Default: "" (empty)
 author = ""
 
-# Line under the title. `{Tier}` is replaced with the capitalised tier name
-# ("Required"), `{tier}` with the tier name as written ("required").
+# Fallback cover subtitle for tiers without a `[tier.<name>]` override. `{Tier}` is replaced
+# with the capitalised tier name ("Required"), `{tier}` with the tier name as written.
+# An empty `[tier.<name>].subtitle` hides the subtitle for that tier.
 # Default: "{Tier} course material"
-tier_line = "{Tier} course material"
-# tier_line = "{Tier}"
-# tier_line = "Kurssimateriaali: {tier}"
+subtitle = "{Tier} course material"
+# subtitle = "{Tier}"
+# subtitle = "Kurssimateriaali: {tier}"
+# The previous key `tier_line` remains accepted as an alias.
 
 # Width of the panel that holds the cover text, and how far it is moved from the
 # page edge, in millimetres.

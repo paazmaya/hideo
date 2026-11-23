@@ -61,7 +61,7 @@ pub fn main_typ(
         "#cover({}, {}, {}, {}, {}mm, {}mm)\n",
         typst_string(cover),
         typst_string(&config.cover.title),
-        typst_string(&config.tier_line(tier)),
+        typst_string(&config.tier_subtitle(tier)),
         typst_string(&config.cover.author),
         num(config.cover.panel_width_mm),
         num(config.cover.panel_offset_mm),
@@ -220,6 +220,22 @@ mod tests {
         assert!(main.contains(r#"#cover("images/c.jpg", "My \"Book\"", "Req course material", "A. Author", 170mm, 20mm)"#), "{main}");
         assert!(main.contains(r#"#contents("images/ch.jpg", "Contents", 2)"#));
         assert!(main.contains("#include \"pages/001.typ\"\n#include \"pages/002.typ\""));
+    }
+
+    #[test]
+    fn main_typ_uses_tier_specific_subtitle() {
+        let mut cfg = config();
+        cfg.tier.insert(
+            "req".into(),
+            crate::config::TierConfig {
+                subtitle: Some("Custom cover subtitle".into()),
+            },
+        );
+        let main = main_typ(&cfg, "req", &[], "images/c.jpg", None);
+        assert!(
+            main.contains(r#"#cover("images/c.jpg", "My \"Book\"", "Custom cover subtitle""#),
+            "{main}"
+        );
     }
 
     #[test]

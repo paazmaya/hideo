@@ -24,6 +24,32 @@ fn test_minimal_build_has_cover_contents_and_pages() {
 }
 
 #[test]
+fn test_empty_tier_subtitle_is_omitted_from_cover() {
+    let input = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), input.path());
+    let config = std::fs::read_to_string(input.path().join("hideo.toml")).unwrap();
+    std::fs::write(
+        input.path().join("hideo.toml"),
+        format!("{config}\n[tier.required]\nsubtitle = \"\"\n"),
+    )
+    .unwrap();
+
+    let output = tempfile::tempdir().unwrap();
+    let result = hideo()
+        .args(["build", "--input"])
+        .arg(input.path())
+        .arg("--output")
+        .arg(output.path())
+        .args(["-q"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{}", stderr(&result));
+    let doc = load(&output.path().join("required.pdf"));
+    let cover = page_text(&doc, 1);
+    assert!(!cover.contains("Required course material"), "{cover}");
+}
+
+#[test]
 fn test_page_number_on_all_but_cover() {
     let (out, r) = build_fixture("minimal", &["-q"]);
     assert!(r.status.success());

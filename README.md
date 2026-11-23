@@ -131,7 +131,8 @@ your own file. Anything you leave out falls back to the default.
 | ----------------- | ------------------------------------------------- |
 | (top level)       | `tiers`, `ignore_prefixes`                        |
 | `[book]`          | document language                                 |
-| `[cover]`         | title, author, tier line, text panel size         |
+| `[cover]`         | title, author, fallback subtitle, text panel size |
+| `[tier.<name>]`   | optional per-tier cover subtitle                  |
 | `[contents]`      | heading and number of columns                     |
 | `[page]`          | page width and margins                            |
 | `[images]`        | `dpi`, `jpeg_quality`, cover and contents images  |
@@ -144,6 +145,8 @@ Unknown keys are an error. Paths are relative to the config file, except `build.
 which is relative to the output folder. Required keys: `tiers`, `book.lang` (the document
 language, a [BCP 47](https://www.rfc-editor.org/info/bcp47) tag such as `fi` or `en-GB`: it is
 never silently English) and `cover.title`. A configuration error exits with code 2.
+`[tier.<name>] subtitle` overrides the `[cover] subtitle` fallback for that tier; the name must
+also appear in `tiers`. An empty subtitle omits the cover subtitle.
 
 ## Markdown profile
 

@@ -1,6 +1,6 @@
 //! Configuration file (`hideo.toml`), see plan 7.4 and Appendix A.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,8 @@ pub const DEFAULT_DIAGRAM_THEME: &str = include_str!("../assets/mermaid-theme.js
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub tiers: Vec<String>,
+    #[serde(default)]
+    pub tier: BTreeMap<String, TierConfig>,
     #[serde(default = "default_ignore_prefixes")]
     pub ignore_prefixes: Vec<String>,
 
@@ -93,7 +95,8 @@ impl Default for ImagesConfig {
 pub struct CoverConfig {
     pub title: String,
     pub author: String,
-    pub tier_line: String,
+    #[serde(alias = "tier_line")]
+    pub subtitle: String,
     pub panel_width_mm: f64,
     pub panel_offset_mm: f64,
 }
@@ -103,11 +106,17 @@ impl Default for CoverConfig {
         Self {
             title: String::new(),
             author: String::new(),
-            tier_line: "{Tier} course material".to_string(),
+            subtitle: "{Tier} course material".to_string(),
             panel_width_mm: 170.0,
             panel_offset_mm: 20.0,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct TierConfig {
+    pub subtitle: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -271,6 +280,13 @@ impl Config {
                 errors.push(format!("duplicate tier '{tier}'"));
             }
         }
+        for tier in self.tier.keys() {
+            if !seen.contains(tier.as_str()) {
+                errors.push(format!(
+                    "tier configuration '{tier}' does not match any configured tier"
+                ));
+            }
+        }
 
         if self.page.width_mm <= 2.0 * self.page.margin_x_mm {
             errors.push("page.width_mm must be greater than 2 * page.margin_x_mm".to_string());
@@ -341,9 +357,13 @@ impl Config {
         (297.0 - 2.0 * self.page.margin_y_mm) * MM_TO_PT
     }
 
-    pub fn tier_line(&self, tier: &str) -> String {
-        self.cover
-            .tier_line
+    pub fn tier_subtitle(&self, tier: &str) -> String {
+        let subtitle = self
+            .tier
+            .get(tier)
+            .and_then(|config| config.subtitle.as_deref())
+            .unwrap_or(&self.cover.subtitle);
+        subtitle
             .replace("{Tier}", &capitalize(tier))
             .replace("{tier}", tier)
     }
@@ -506,9 +526,37 @@ title = "T"
     }
 
     #[test]
-    fn test_tier_line_substitutes_capitalised_tier() {
+    fn test_tier_subtitle_falls_back_and_substitutes_tier() {
         let c = load(MINIMAL).unwrap();
-        assert_eq!(c.tier_line("required"), "Required course material");
+        assert_eq!(c.tier_subtitle("required"), "Required course material");
+        let c = load(&format!(
+            "{MINIMAL}\n[tier.required]\nsubtitle = \"{{Tier}} material for {{tier}}\"\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            c.tier_subtitle("required"),
+            "Required material for required"
+        );
+    }
+
+    #[test]
+    fn test_empty_tier_subtitle_and_legacy_cover_tier_line() {
+        let text = MINIMAL.replace(
+            "title = \"T\"",
+            "title = \"T\"\ntier_line = \"Old {Tier} line\"",
+        );
+        let c = load(&format!("{text}\n[tier.required]\nsubtitle = \"\"\n")).unwrap();
+        assert_eq!(c.cover.subtitle, "Old {Tier} line");
+        assert_eq!(c.tier_subtitle("required"), "");
+    }
+
+    #[test]
+    fn test_config_rejects_subtitle_for_unknown_tier() {
+        let err = load(&format!(
+            "{MINIMAL}\n[tier.unknown]\nsubtitle = \"Unknown\"\n"
+        ))
+        .unwrap_err();
+        assert!(err.0.contains("tier configuration 'unknown'"), "{}", err.0);
     }
 
     #[test]

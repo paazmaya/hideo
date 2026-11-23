@@ -158,8 +158,8 @@
   }
 }
 
-// Full-bleed cover: image, then a panel with title, tier line and author in reading order.
-#let cover(picture, title, tier-line, author, panel-width, panel-offset) = page(
+// Full-bleed cover: image, then a panel with title, optional subtitle and author.
+#let cover(picture, title, subtitle, author, panel-width, panel-offset) = page(
   margin: 0pt,
   footer: none,
   {
@@ -172,9 +172,11 @@
         set text(fill: white)
         set par(spacing: 0.9em)
         text(size: 24pt, weight: "bold", title)
-        parbreak()
-        text(size: 16pt, tier-line)
-        parbreak()
+        if subtitle != "" {
+          parbreak()
+          text(size: 16pt, subtitle)
+          parbreak()
+        }
         text(size: 12pt, author)
       }),
     )
