@@ -137,7 +137,7 @@ your own file. Anything you leave out falls back to the default.
 | `[images]`        | `dpi`, `jpeg_quality`, cover and contents images  |
 | `[diagrams]`      | Mermaid backend, renderer command, timeout, theme |
 | `[build]`         | cache folder                                      |
-| `[diagnostics]`   | `warnings_as_errors`                              |
+| `[diagnostics]`   | `warnings_as_errors`, `suppress_warnings`         |
 | `[accessibility]` | tagged PDF and PDF/UA validation                  |
 
 Unknown keys are an error. Paths are relative to the config file, except `build.cache_dir`,

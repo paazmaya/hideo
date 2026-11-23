@@ -170,6 +170,7 @@ fn test_table_negative_control_plain_row_is_td() {
         pdf_ua: true,
         timestamp: Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap(),
         warnings_as_errors: false,
+        suppressed_warnings: Vec::new(),
     };
     let pdf = compile_pdf(&world, &SourceMaps::new(), &settings).unwrap();
     let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();

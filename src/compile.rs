@@ -34,6 +34,7 @@ pub struct PdfSettings {
     pub pdf_ua: bool,
     pub timestamp: Datetime,
     pub warnings_as_errors: bool,
+    pub suppressed_warnings: Vec<WarningCode>,
 }
 
 #[derive(Debug)]
@@ -102,6 +103,7 @@ pub fn compile_pdf(
         .iter()
         .map(|w| map_warning(world, maps, w))
         .collect();
+    mapped_warnings.retain(|w| !settings.suppressed_warnings.contains(&w.code));
 
     let document = output.map_err(|errs| map_errors(world, maps, &errs, ErrorCode::E005))?;
 
@@ -315,6 +317,7 @@ mod tests {
             pdf_ua: false,
             timestamp: dt,
             warnings_as_errors: false,
+            suppressed_warnings: Vec::new(),
         };
         let res = compile_pdf(&world, &maps, &settings).unwrap();
         assert_eq!(res.warnings.len(), 2);
@@ -324,9 +327,20 @@ mod tests {
             pdf_ua: false,
             timestamp: dt,
             warnings_as_errors: true,
+            suppressed_warnings: Vec::new(),
         };
         let res_err = compile_pdf(&world, &maps, &settings_err);
         assert!(res_err.is_err());
+
+        let settings_suppressed = PdfSettings {
+            tagged: false,
+            pdf_ua: false,
+            timestamp: dt,
+            warnings_as_errors: true,
+            suppressed_warnings: vec![WarningCode::W010],
+        };
+        let res_suppressed = compile_pdf(&world, &maps, &settings_suppressed).unwrap();
+        assert!(res_suppressed.warnings.is_empty());
     }
 
     #[test]
@@ -359,6 +373,7 @@ mod tests {
             pdf_ua,
             timestamp: Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap(),
             warnings_as_errors: false,
+            suppressed_warnings: Vec::new(),
         }
     }
 

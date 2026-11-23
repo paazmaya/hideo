@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// A content error: the build cannot produce a correct PDF.
@@ -121,7 +122,7 @@ impl fmt::Display for Warning {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum WarningCode {
     /// Unresolved link.
     W001,

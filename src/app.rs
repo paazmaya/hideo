@@ -15,7 +15,8 @@ use crate::cli::{
 use crate::compile;
 use crate::config::{Config, DiagramBackendConfig};
 use crate::discover;
-use crate::error::ConfigError;
+use crate::error::{ConfigError, WarningCode};
+use crate::linkmap::UnresolvedLink;
 use crate::report::{self, Report, Stats};
 
 pub const EXIT_OK: u8 = 0;
@@ -124,15 +125,12 @@ fn build_command(args: BuildArgs, cli_verbosity: Verbosity) -> Result<u8, Config
     };
     let started = std::time::Instant::now();
     let outcome = pool.install(|| build::run(&config, &options));
-    let report = Report::new(
-        &outcome.diagnostics,
-        &outcome.unresolved,
-        outcome.stats.clone(),
-    );
+    let unresolved = report_unresolved(&config, &outcome.unresolved);
+    let report = Report::new(&outcome.diagnostics, unresolved, outcome.stats.clone());
     let _ = report::write_text(
         &mut std::io::stderr(),
         &report,
-        &outcome.unresolved,
+        unresolved,
         !verbosity.includes(Verbosity::Warning),
     );
 
@@ -178,11 +176,8 @@ fn check_command(args: CheckArgs, verbosity: Verbosity) -> Result<u8, ConfigErro
         verbose: false,
     };
     let outcome = build::run(&config, &options);
-    let report = Report::new(
-        &outcome.diagnostics,
-        &outcome.unresolved,
-        outcome.stats.clone(),
-    );
+    let unresolved = report_unresolved(&config, &outcome.unresolved);
+    let report = Report::new(&outcome.diagnostics, unresolved, outcome.stats.clone());
     match args.format {
         ReportFormat::Json => println!("{}", report.to_json()),
         ReportFormat::Text => {
@@ -190,7 +185,7 @@ fn check_command(args: CheckArgs, verbosity: Verbosity) -> Result<u8, ConfigErro
             let _ = report::write_text(
                 &mut stdout,
                 &report,
-                &outcome.unresolved,
+                unresolved,
                 !verbosity.includes(Verbosity::Warning),
             );
             if verbosity.includes(Verbosity::Info) {
@@ -210,6 +205,17 @@ fn check_command(args: CheckArgs, verbosity: Verbosity) -> Result<u8, ConfigErro
     } else {
         EXIT_OK
     })
+}
+
+fn report_unresolved<'a>(
+    config: &Config,
+    unresolved: &'a [UnresolvedLink],
+) -> &'a [UnresolvedLink] {
+    if config.diagnostics.suppresses(WarningCode::W001) {
+        &[]
+    } else {
+        unresolved
+    }
 }
 
 #[derive(Serialize)]

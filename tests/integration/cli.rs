@@ -405,6 +405,42 @@ fn test_warnings_as_errors() {
 }
 
 #[test]
+fn test_suppressed_warning_code_is_ignored_even_when_warnings_are_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), dir.path());
+    std::fs::copy(
+        dir.path().join("images/hero.png"),
+        dir.path().join("images/cover_front_required.png"),
+    )
+    .unwrap();
+    let config = std::fs::read_to_string(dir.path().join("hideo.toml")).unwrap();
+    std::fs::write(
+        dir.path().join("hideo.toml"),
+        format!(
+            "{config}\n[diagnostics]\nwarnings_as_errors = true\nsuppress_warnings = [\"W009\"]\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("required").join("01_intro.md"),
+        "---\ntitle: Intro\nhero: images/hero.png\n---\n\n[https://example.com](https://example.com)\n",
+    )
+    .unwrap();
+
+    let output = tempfile::tempdir().unwrap();
+    let result = hideo()
+        .args(["build", "--input"])
+        .arg(dir.path())
+        .arg("--output")
+        .arg(output.path())
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{}", stderr(&result));
+    assert!(!stderr(&result).contains("W009"), "{}", stderr(&result));
+    assert!(output.path().join("required.pdf").exists());
+}
+
+#[test]
 fn test_pdf_ua_off_prints_warning_and_skips_validation() {
     let dir = tempfile::tempdir().unwrap();
     copy_dir(&fixture("minimal"), dir.path());

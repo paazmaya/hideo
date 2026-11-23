@@ -16,8 +16,8 @@ native-diagrams = ["dep:mermaid-rs-renderer"]
 [dependencies]
 clap = { version = "4.6.9", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-toml = "1.2.2+spec-1.1.0"
-serde_json = "1"
+toml = "1.2.2"
+serde_json = "1.0.154"
 markdown-frontmatter = { version = "0.5.1", default-features = false, features = ["yaml"] }
 pulldown-cmark = { version = "0.13.6", default-features = false }
 typst = "=0.15.1"

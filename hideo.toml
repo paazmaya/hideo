@@ -199,6 +199,11 @@ auto_mailto = true
 warnings_as_errors = false
 # warnings_as_errors = true
 
+# Warning codes to omit from reports and from warnings-as-errors handling.
+# The codes are the same IDs shown in warning messages, for example W009 for
+# non-descriptive link text. Unset by default: no warnings are suppressed.
+# suppress_warnings = ["W009"]
+
 # ---------------------------------------------------------------------------
 # [accessibility] - tagged PDF and PDF/UA
 # ---------------------------------------------------------------------------

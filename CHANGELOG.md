@@ -5,6 +5,8 @@ It follows the guidance from https://keepachangelog.com/en/1.0.0/.
 
 ## Unreleased
 
+- Warning codes can be suppressed in `[diagnostics]` with `suppress_warnings`, for example
+  `suppress_warnings = ["W009"]` to omit warnings about non-descriptive link text.
 - YAML frontmatter parsing uses `markdown-frontmatter` with only the YAML feature enabled.
 - Frontmatter keys are documented: `title` and `hero` are required; `subtitle`, `author`,
   `lang`, and `hero_alt` are optional. Builds halt and generate no PDF for a tier when a

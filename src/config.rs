@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConfigError;
+use crate::error::{ConfigError, WarningCode};
 
 /// Default diagram theme, embedded so the binary works without the `assets/` folder.
 pub const DEFAULT_DIAGRAM_THEME: &str = include_str!("../assets/mermaid-theme.json");
@@ -187,6 +187,13 @@ impl Default for BuildConfig {
 #[serde(deny_unknown_fields, default)]
 pub struct DiagnosticsConfig {
     pub warnings_as_errors: bool,
+    pub suppress_warnings: Vec<WarningCode>,
+}
+
+impl DiagnosticsConfig {
+    pub fn suppresses(&self, code: WarningCode) -> bool {
+        self.suppress_warnings.contains(&code)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -395,6 +402,23 @@ title = "T"
         assert_eq!(c.build.cache_dir, ".hideo-cache");
         assert_eq!(c.diagrams.backend, DiagramBackendConfig::External);
         assert!(c.links.auto_mailto);
+        assert!(c.diagnostics.suppress_warnings.is_empty());
+    }
+
+    #[test]
+    fn test_warning_suppression_config() {
+        let c = load(&format!(
+            "{MINIMAL}\n[diagnostics]\nsuppress_warnings = [\"W009\"]\n"
+        ))
+        .unwrap();
+        assert!(c.diagnostics.suppresses(WarningCode::W009));
+        assert!(!c.diagnostics.suppresses(WarningCode::W008));
+
+        let err = load(&format!(
+            "{MINIMAL}\n[diagnostics]\nsuppress_warnings = [\"W999\"]\n"
+        ))
+        .unwrap_err();
+        assert!(err.0.contains("W999"), "{}", err.0);
     }
 
     #[test]

@@ -75,6 +75,7 @@ pub fn run(config: &Config, options: &Options) -> Outcome {
     // All configured tiers are discovered so links into other tiers can be recognised.
     let (sources, discovery) = discover::discover(config, &config.tiers, &options.source_dir);
     outcome.diagnostics.extend(discovery);
+    suppress_warnings(config, &mut outcome.diagnostics);
     if outcome.diagnostics.has_errors() {
         // A page that cannot be read would leave a hole in the book: build nothing.
         if matches!(options.mode, Mode::Build(_)) {
@@ -103,6 +104,7 @@ pub fn run(config: &Config, options: &Options) -> Outcome {
             .flat_map(|t| t.pages.iter().map(|p| p.rel_path.clone()))
             .collect();
         let mut prepared = prepare_tier(config, tier, &others, options, cache_dir.as_deref());
+        suppress_warnings(config, &mut prepared.diag);
         let summary_pages: Vec<PageSummary> = prepared
             .pages
             .iter()
@@ -196,11 +198,19 @@ pub fn generate(config: &Config, options: &Options, tier_name: &str) -> Option<G
         Mode::Check => None,
     };
     let prepared = prepare_tier(config, tier, &others, options, cache_dir.as_deref());
+    let mut diag = prepared.diag;
+    suppress_warnings(config, &mut diag);
     Some(Generated {
         files: prepared.files,
         maps: prepared.maps,
-        diag: prepared.diag,
+        diag,
     })
+}
+
+fn suppress_warnings(config: &Config, diagnostics: &mut DiagnosticCollector) {
+    diagnostics
+        .warnings
+        .retain(|warning| !config.diagnostics.suppresses(warning.code));
 }
 
 struct Prepared {
@@ -747,6 +757,7 @@ fn compile_tier(
         pdf_ua: config.accessibility.pdf_ua,
         timestamp: build.today,
         warnings_as_errors: config.diagnostics.warnings_as_errors,
+        suppressed_warnings: config.diagnostics.suppress_warnings.clone(),
     };
     let compiled = compile::compile_pdf(&world, &prepared.maps, &settings)?;
     let path = build.output.join(format!("{tier}.pdf"));
