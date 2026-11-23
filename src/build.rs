@@ -1083,6 +1083,8 @@ mod tests {
         let cfg = minimal_config();
         #[cfg(not(feature = "native-diagrams"))]
         assert!(diagram_renderer(&cfg, DiagramBackendConfig::Native).is_err());
+        #[cfg(feature = "native-diagrams")]
+        assert!(diagram_renderer(&cfg, DiagramBackendConfig::Native).is_ok());
     }
 
     #[test]
@@ -1270,6 +1272,14 @@ mod tests {
         #[cfg(not(feature = "native-diagrams"))]
         assert!(
             outcome
+                .diagnostics
+                .errors
+                .iter()
+                .any(|e| e.code == ErrorCode::E007)
+        );
+        #[cfg(feature = "native-diagrams")]
+        assert!(
+            !outcome
                 .diagnostics
                 .errors
                 .iter()

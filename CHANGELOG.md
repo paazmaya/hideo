@@ -5,6 +5,9 @@ It follows the guidance from https://keepachangelog.com/en/1.0.0/.
 
 ## Unreleased
 
+- **Breaking:** native flowchart and state diagram rendering is now enabled by default. Other
+  diagram types use `gazu` by default; configure `[diagrams].command` to use another external
+  renderer, or set `backend = "external"` to route every diagram through it.
 - Cover subtitles can be overridden per tier with `[tier.<name>] subtitle = "..."`; the
   shared `[cover] subtitle` remains the fallback.
 - The cover text panel has margins from the page edges and defaults to vertical centering at

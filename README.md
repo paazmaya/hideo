@@ -7,9 +7,9 @@
 
 `hideo` turns a folder of Markdown pages and images into one PDF book per _tier_
 (a tier is a folder such as `required`, `additional`, `bonus`). It is a single binary: the
-[Typst](https://typst.app) compiler and PDF exporter are embedded, so there is nothing else
-to install. The only optional external dependency is a renderer for
-[Mermaid](https://mermaid.js.org) diagrams.
+[Typst](https://typst.app) compiler and PDF exporter are embedded. Flowcharts and state
+diagrams render in-process; other [Mermaid](https://mermaid.js.org) diagram types use the
+external renderer configured in `hideo.toml` (default: `gazu`).
 
 What you get: a full-bleed cover, a contents page with page numbers, one hero image per
 page, working internal links, styled tables whose header row repeats across pages,
@@ -27,8 +27,7 @@ Building needs [Rust](https://www.rust-lang.org) 1.92 or newer, installed with
 [rustup](https://rustup.rs).
 
 ```sh
-cargo install --path .                      # Rust 1.92 or newer
-cargo install --path . --features native-diagrams   # also render some diagrams in-process
+cargo install --path .  # Rust 1.92 or newer; native diagram support is included by default
 ```
 
 ## Quick start
@@ -127,19 +126,19 @@ The annotated [hideo.toml](hideo.toml) in the root of this repository is the ful
 option, its default, the allowed range and the alternatives. Use it as the starting point for
 your own file. Anything you leave out falls back to the default.
 
-| Table             | What it controls                                  |
-| ----------------- | ------------------------------------------------- |
-| (top level)       | `tiers`, `ignore_prefixes`                        |
-| `[book]`          | document language                                 |
+| Table             | What it controls                                        |
+| ----------------- | ------------------------------------------------------- |
+| (top level)       | `tiers`, `ignore_prefixes`                              |
+| `[book]`          | document language                                       |
 | `[cover]`         | title, author, fallback subtitle, panel size and margin |
-| `[tier.<name>]`   | optional per-tier cover subtitle                  |
-| `[contents]`      | heading and number of columns                     |
-| `[page]`          | page width and margins                            |
-| `[images]`        | `dpi`, `jpeg_quality`, cover and contents images  |
-| `[diagrams]`      | Mermaid backend, renderer command, timeout, theme |
-| `[build]`         | cache folder                                      |
-| `[diagnostics]`   | `warnings_as_errors`, `suppress_warnings`         |
-| `[accessibility]` | tagged PDF and PDF/UA validation                  |
+| `[tier.<name>]`   | optional per-tier cover subtitle                        |
+| `[contents]`      | heading and number of columns                           |
+| `[page]`          | page width and margins                                  |
+| `[images]`        | `dpi`, `jpeg_quality`, cover and contents images        |
+| `[diagrams]`      | Mermaid backend, renderer command, timeout, theme       |
+| `[build]`         | cache folder                                            |
+| `[diagnostics]`   | `warnings_as_errors`, `suppress_warnings`               |
+| `[accessibility]` | tagged PDF and PDF/UA validation                        |
 
 Unknown keys are an error. Paths are relative to the config file, except `build.cache_dir`,
 which is relative to the output folder. Required keys: `tiers`, `book.lang` (the document
@@ -169,21 +168,21 @@ in a separate PDF and are reported as _outside this PDF_.
 
 A ` ```mermaid ` code block becomes an image. Give it alt text after the fence language:
 ` ```mermaid "How the pieces connect" `, or use `accTitle:` / `accDescr:` lines. Diagrams are
-rendered by a command that follows the command line of `mmdc`
-([mermaid-cli](https://github.com/mermaid-js/mermaid-cli), which needs
-[Node.js](https://nodejs.org) and a Chromium browser), configured under
-`[diagrams]`; [`mmdr`](https://github.com/1jehuang/mermaid-rs-renderer) and
-[`gazu`](https://crates.io/crates/gazu) work too. For `gazu`, hideo speaks its
-Pandoc-filter protocol, passes the Mermaid theme through `GAZU_CONFIG`, and accepts the
-default `mmdc`-shaped `args` unchanged. Results are cached, so only changed diagrams are rendered
-again. On Windows use `command = "mmdc.cmd"` if `mmdc` is not found.
+by default rendered in-process for flowcharts and state diagrams. Other diagram types use
+[`gazu`](https://crates.io/crates/gazu), which must be installed and available on `PATH`.
+Hideo speaks its Pandoc-filter protocol and passes the Mermaid theme through `GAZU_CONFIG`.
+Configure another external renderer under `[diagrams]`: [`mmdr`](https://github.com/1jehuang/mermaid-rs-renderer)
+also works, as does [`mmdc`](https://github.com/mermaid-js/mermaid-cli), which needs
+[Node.js](https://nodejs.org) and a Chromium browser. On Windows use `command = "mmdc.cmd"`
+if `mmdc` is not found. External renderer arguments are configured with `args`; the default
+arguments are for mmdc-compatible commands and are ignored by gazu. Results are cached, so only
+changed diagrams are rendered again.
 Custom Mermaid themes inherit `Readex Pro` as `fontFamily` at the root and under
 `themeVariables` when those fields are omitted.
 
-Built with `--features native-diagrams`, `backend = "native"` renders flowcharts and state
-diagrams in-process (no Node.js or Chromium; it uses the
-[`mermaid-rs-renderer`](https://github.com/1jehuang/mermaid-rs-renderer) crate) and hands the other types (sequence, class, ER, pie,
-mindmap, gantt, ...) to the external command.
+Set `backend = "external"` to use the configured renderer for every diagram. Set
+`native_only = true` with `backend = "native"` to fail instead of using an external renderer
+for unsupported types.
 
 ## Accessibility
 

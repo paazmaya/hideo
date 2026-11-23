@@ -139,32 +139,33 @@ cover_pattern = "images/cover_front_{tier}.png"
 # ---------------------------------------------------------------------------
 [diagrams]
 # How diagrams are rendered:
-#   "external" - run `command` (`mmdc`, `mmdr`, or `gazu`). Needs that tool installed.
-#   "native"   - render in-process, no Node.js or Chromium. Only available when hideo
-#                was built with `--features native-diagrams`. Diagram types it cannot
-#                draw (sequence, class, ER, pie, gantt, ...) go to `command`, unless
-#                native_only is set.
+#   "native"   - render flowcharts and state diagrams in-process; other types (sequence,
+#                class, ER, pie, gantt, ...) go to `command`, unless native_only is set.
+#                Included in the default build; no Node.js or Chromium is needed.
+#   "external" - run `command` for every diagram (`gazu`, `mmdc`, or `mmdr`).
 #   "off"      - do not render diagrams; a page containing one fails the build.
 # Can be overridden on the command line with `hideo build --diagrams <backend>`.
-# Default: "external"
-backend = "external"
-# backend = "native"
+# Default: "native"
+backend = "native"
+# backend = "external"
 # backend = "off"
 
 # The renderer program, used with "external" (and for the types "native" leaves to it).
-# Must not be empty when backend = "external". Hideo detects `gazu` by its executable
-# name and uses its Pandoc-filter protocol instead of the arguments below. The theme is
-# passed through GAZU_CONFIG. On Windows use "mmdc.cmd" if "mmdc" is not found.
-# Default: "mmdc"
-command = "mmdc"
+# Hideo detects `gazu` by its executable name and uses its Pandoc-filter protocol instead
+# of the arguments below, passing the theme through GAZU_CONFIG. Configure `mmdc` or `mmdr`
+# here if preferred; on Windows
+# use "mmdc.cmd" if "mmdc" is not found. The selected external renderer must be installed.
+# Default: "gazu"
+command = "gazu"
+# command = "mmdc"
 # command = "mmdc.cmd"
 # command = "mmdr"
-# command = "gazu"
 
 # Arguments for `command`. These placeholders are replaced for every diagram:
 #   {input}  the Mermaid source file
 #   {output} the SVG file that must be written
 #   {theme}  the theme / config JSON file (see `theme` below)
+# The default is for mmdc-compatible commands; gazu ignores these and uses its filter protocol.
 # Default: ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
 args = ["-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg"]
 

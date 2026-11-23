@@ -10,7 +10,7 @@ readme = "README.md"
 authors = ["Juga Paazmaya <paazmaya@yahoo.com>"]
 
 [features]
-default = []
+default = ["native-diagrams"]
 native-diagrams = ["dep:mermaid-rs-renderer"]
 
 [dependencies]

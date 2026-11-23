@@ -163,8 +163,8 @@ pub struct DiagramsConfig {
 impl Default for DiagramsConfig {
     fn default() -> Self {
         Self {
-            backend: DiagramBackendConfig::External,
-            command: "mmdc".to_string(),
+            backend: DiagramBackendConfig::Native,
+            command: "gazu".to_string(),
             args: [
                 "-i", "{input}", "-o", "{output}", "-c", "{theme}", "-e", "svg",
             ]
@@ -319,11 +319,12 @@ impl Config {
         if 2.0 * self.cover.panel_margin_mm >= 297.0 {
             errors.push("cover.panel_margin_mm must be less than half the page height".to_string());
         }
-        if self.diagrams.backend == DiagramBackendConfig::External
-            && self.diagrams.command.trim().is_empty()
-        {
+        let needs_external_diagrams = self.diagrams.backend == DiagramBackendConfig::External
+            || (self.diagrams.backend == DiagramBackendConfig::Native
+                && !self.diagrams.native_only);
+        if needs_external_diagrams && self.diagrams.command.trim().is_empty() {
             errors.push(
-                "diagrams.command must not be empty when diagrams.backend = \"external\""
+                "diagrams.command must not be empty when an external diagram renderer is needed"
                     .to_string(),
             );
         }
@@ -438,9 +439,28 @@ title = "T"
         assert!(c.accessibility.pdf_ua && c.accessibility.tagged);
         assert_eq!(c.ignore_prefixes, vec!["_", "."]);
         assert_eq!(c.build.cache_dir, ".hideo-cache");
-        assert_eq!(c.diagrams.backend, DiagramBackendConfig::External);
+        assert_eq!(c.diagrams.backend, DiagramBackendConfig::Native);
+        assert_eq!(c.diagrams.command, "gazu");
         assert!(c.links.auto_mailto);
         assert!(c.diagnostics.suppress_warnings.is_empty());
+    }
+
+    #[test]
+    fn native_backend_requires_a_fallback_command_unless_native_only() {
+        let err = load(&format!(
+            "{MINIMAL}\n[diagrams]\nbackend = \"native\"\ncommand = \"\"\n"
+        ))
+        .unwrap_err();
+        assert!(
+            err.0.contains("external diagram renderer is needed"),
+            "{}",
+            err.0
+        );
+
+        load(&format!(
+            "{MINIMAL}\n[diagrams]\nbackend = \"native\"\ncommand = \"\"\nnative_only = true\n"
+        ))
+        .unwrap();
     }
 
     #[test]
