@@ -75,6 +75,14 @@ fn test_contents_page_numbers_match_actual_pages() {
     assert!(r.status.success(), "{}", stderr(&r));
     let doc = load(&out.path().join("required.pdf"));
     let contents = page_text(&doc, 2);
+    let folder = contents.find("Sub").expect("folder group in contents");
+    let nested = contents
+        .find("Nested Page")
+        .expect("nested page in contents");
+    assert!(
+        folder < nested,
+        "folder group precedes its child page: {contents}"
+    );
     // (contents title, text that only appears on that page's body)
     let entries = [
         ("Introduction", "This is the introduction page"),
@@ -83,6 +91,10 @@ fn test_contents_page_numbers_match_actual_pages() {
         ("Tables", "Simple Table"),
         ("Images", "A body image scaled"),
         ("Nested Page", "Unicode headings"),
+        ("Deep Page", "deeper directory levels"),
+        ("Another Deep Page", "second page must remain"),
+        ("Third Deep Page", "third page must also remain"),
+        ("Final Page", "same directory as a deeper subfolder"),
     ];
     let pages = page_count(&doc) as u32;
     for (title, marker) in entries {

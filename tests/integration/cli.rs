@@ -509,7 +509,10 @@ fn test_keep_typst_writes_generated_sources() {
     assert!(main.contains("#include \"pages/001.typ\""));
     assert!(keep.path().join("required/template.typ").exists());
     let page = std::fs::read_to_string(keep.path().join("required/pages/001.typ")).unwrap();
-    assert!(page.contains("#heading(level: 1)[Welcome]"), "{page}");
+    assert!(
+        page.contains("#heading(outlined: false, bookmarked: false, level: 1)[Welcome]"),
+        "{page}"
+    );
 }
 
 #[test]

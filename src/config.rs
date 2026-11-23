@@ -396,6 +396,23 @@ pub fn capitalize(s: &str) -> String {
     }
 }
 
+/// Convert a directory name into a human-readable TOC section name.
+pub fn section_title(name: &str) -> String {
+    let without_number = name.trim_start_matches(|c: char| c.is_ascii_digit());
+    let title: String = without_number
+        .trim_start_matches(|c: char| c == '-' || c == '_' || c.is_whitespace())
+        .chars()
+        .map(|c| if c == '-' || c == '_' { ' ' } else { c })
+        .collect();
+    capitalize(
+        title
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .as_str(),
+    )
+}
+
 /// Two or three ASCII letters, optionally followed by subtags of 2-8 alphanumerics
 /// (script or region). This is the subset Typst's `text(lang: ...)` accepts.
 fn is_valid_lang(tag: &str) -> bool {
@@ -578,6 +595,14 @@ title = "T"
             c.tier_subtitle("required"),
             "Required material for required"
         );
+    }
+
+    #[test]
+    fn section_titles_normalize_folder_names() {
+        assert_eq!(section_title("01-introduction"), "Introduction");
+        assert_eq!(section_title("002_deep_area"), "Deep area");
+        assert_eq!(section_title("chapter-two_again"), "Chapter two again");
+        assert_eq!(section_title("9  spaced--name"), "Spaced name");
     }
 
     #[test]

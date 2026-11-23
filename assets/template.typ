@@ -197,5 +197,18 @@
   set par(leading: 0.4em)
   set outline.entry(fill: repeat[.])
   show outline.entry: set block(above: 0.55em, below: 0pt, width: 100%)
-  columns(columns-count, gutter: 6mm, outline(title: none, target: heading.where(level: 1)))
+  show outline.entry: it => if it.element.supplement == [hideo-folder] {
+    it.indented(none, par(it.body()))
+  } else {
+    link(it.element.location(), it.indented(it.prefix(), it.inner()))
+  }
+  columns(
+    columns-count,
+    gutter: 6mm,
+    outline(
+      title: none,
+      target: heading.where(supplement: [hideo-folder])
+        .or(heading.where(supplement: [hideo-page])),
+    ),
+  )
 }

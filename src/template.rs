@@ -10,6 +10,13 @@ use crate::page::Page;
 pub const TEMPLATE_SOURCE: &str = include_str!("../assets/template.typ");
 pub const ARROW_SVG: &[u8] = include_bytes!("../assets/arrow.svg");
 
+#[derive(Debug, Clone)]
+pub struct FolderHeading {
+    pub level: usize,
+    pub title: String,
+    pub key: String,
+}
+
 /// Number as Typst source: `210` and `118.125`, never exponent notation.
 fn num(n: f64) -> String {
     format!("{n}")
@@ -31,6 +38,8 @@ pub fn document_title(config: &Config, tier: &str) -> String {
 /// A page with its resolved hero image, in PDF order.
 pub struct PageEntry<'a> {
     pub page: &'a Page,
+    /// Folder headings that first become active immediately before this page.
+    pub folders: Vec<FolderHeading>,
     /// Virtual path of the hero (real image or placeholder).
     pub hero: Option<String>,
     /// Index into the page list, 1-based, used for the file name `pages/001.typ`.
@@ -39,6 +48,17 @@ pub struct PageEntry<'a> {
 
 pub fn page_vpath(number: usize) -> String {
     format!("pages/{number:03}.typ")
+}
+
+fn folder_depth(rel_path: &str) -> usize {
+    rel_path.split('/').count().saturating_sub(2)
+}
+
+fn navigation_title(page: &Page) -> &str {
+    page.headings
+        .iter()
+        .find(|heading| heading.level == 1)
+        .map_or_else(|| page.title(), |heading| heading.text.as_str())
 }
 
 /// `main.typ`: document setup, cover, contents, includes.
@@ -96,6 +116,27 @@ pub fn page_typ(config: &Config, entry: &PageEntry, markup: &PageMarkup) -> (Str
     push("#pagebreak(weak: true)".to_string(), 1);
     push(format!("#metadata(none) <{}>", page.key), 1);
 
+    for folder in &entry.folders {
+        push(
+            format!(
+                "#place(top + left, hide[#heading(level: {}, supplement: [hideo-folder])[{}] <folder--{}>])",
+                folder.level,
+                escape_text(&folder.title, Position::LineStart),
+                folder.key,
+            ),
+            1,
+        );
+    }
+    push(
+        format!(
+            "#place(top + left, hide[#heading(level: {}, supplement: [hideo-page])[{}] <page--{}>])",
+            folder_depth(&page.rel_path) + 1,
+            escape_text(navigation_title(page), Position::LineStart),
+            page.key,
+        ),
+        1,
+    );
+
     let mut args = Vec::new();
     if let Some(hero) = &entry.hero {
         args.push(format!("hero: {}", typst_string(hero)));
@@ -117,7 +158,7 @@ pub fn page_typ(config: &Config, entry: &PageEntry, markup: &PageMarkup) -> (Str
     if page.headings.is_empty() {
         push(
             format!(
-                "#heading(level: 1)[{}] <{}--page-title>",
+                "#heading(outlined: false, bookmarked: false, level: 1)[{}] <{}--page-title>",
                 escape_text(page.title(), Position::LineStart),
                 page.key
             ),
@@ -205,11 +246,13 @@ mod tests {
         let entries = vec![
             PageEntry {
                 page: &a,
+                folders: vec![],
                 hero: None,
                 number: 1,
             },
             PageEntry {
                 page: &b,
+                folders: vec![],
                 hero: None,
                 number: 2,
             },
@@ -248,6 +291,7 @@ mod tests {
         let p = page("req/01.md", "req-01", f, "body line");
         let entry = PageEntry {
             page: &p,
+            folders: vec![],
             hero: Some("images/h.jpg".into()),
             number: 1,
         };
@@ -257,9 +301,12 @@ mod tests {
         };
         let (text, map) = page_typ(&cfg, &entry, &markup);
         assert!(text.contains("#metadata(none) <req-01>"));
+        assert!(text.contains(
+            "#place(top + left, hide[#heading(level: 1, supplement: [hideo-page])[Fallback title] <page--req-01>])"
+        ));
         assert!(text.contains(r#"#page-head(hero: "images/h.jpg", hero-alt: "A view", subtitle: "Sub", author: "Me")"#), "{text}");
         assert!(
-            text.contains("#heading(level: 1)[Fallback title] <req-01--page-title>"),
+            text.contains("#heading(outlined: false, bookmarked: false, level: 1)[Fallback title] <req-01--page-title>"),
             "page without headings gets the title"
         );
         assert_eq!(text.split('\n').count(), map.lines.len());
@@ -276,6 +323,7 @@ mod tests {
         let p = page("req/01.md", "req-01", f, "# Own heading\n");
         let entry = PageEntry {
             page: &p,
+            folders: vec![],
             hero: None,
             number: 1,
         };
@@ -296,6 +344,7 @@ mod tests {
         let p = page("req/01.md", "req-01", f, "# H\n");
         let entry = PageEntry {
             page: &p,
+            folders: vec![],
             hero: None,
             number: 1,
         };
@@ -314,6 +363,46 @@ mod tests {
         let cfg = config();
         let main = main_typ(&cfg, "req", &[], "images/c.jpg", None);
         assert!(main.contains("#contents(none, \"Contents\", 2)"), "{main}");
+    }
+
+    #[test]
+    fn page_typ_adds_folder_groups() {
+        let cfg = config();
+        let p = page(
+            "req/01 Chapter/Child/page.md",
+            "req-01-child-page",
+            fm("Nested"),
+            "# Title\n",
+        );
+        let entry = PageEntry {
+            page: &p,
+            folders: vec![
+                FolderHeading {
+                    level: 1,
+                    title: "01 Chapter".into(),
+                    key: "req-01-chapter".into(),
+                },
+                FolderHeading {
+                    level: 2,
+                    title: "Child".into(),
+                    key: "req-01-chapter-child".into(),
+                },
+            ],
+            hero: None,
+            number: 1,
+        };
+        let markup = PageMarkup {
+            text: "#heading(level: 1)[Title] <req-01-child-page--title>".into(),
+            line_map: vec![5],
+        };
+        let (text, _) = page_typ(&cfg, &entry, &markup);
+        assert!(text.contains(
+            "#place(top + left, hide[#heading(level: 1, supplement: [hideo-folder])[01 Chapter] <folder--req-01-chapter>])"
+        ));
+        assert!(text.contains(
+            "#place(top + left, hide[#heading(level: 3, supplement: [hideo-page])[Title] <page--req-01-child-page>])"
+        ));
+        assert!(text.contains("#heading(level: 1)[Title]"), "{text}");
     }
 
     // ---- palette contrast (plan 7.10 item 8, Appendix B) ----------------------------------

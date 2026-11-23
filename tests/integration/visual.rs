@@ -124,6 +124,11 @@ fn visual_full_book_content_pages() {
 }
 
 #[test]
+fn visual_full_book_contents_groups_multiple_directories() {
+    check("full", "required", &[2]);
+}
+
+#[test]
 fn the_comparison_notices_a_change() {
     let png = render("minimal", "required", &[3]).remove(0).1;
     assert_eq!(different_fraction(&png, &png), 0.0);

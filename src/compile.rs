@@ -35,6 +35,8 @@ pub struct PdfSettings {
     pub timestamp: Datetime,
     pub warnings_as_errors: bool,
     pub suppressed_warnings: Vec<WarningCode>,
+    /// Absolute nesting level for each generated page/folder bookmark.
+    pub outline_levels: Option<Vec<usize>>,
 }
 
 #[derive(Debug)]
@@ -124,8 +126,11 @@ pub fn compile_pdf(
         tagged: settings.tagged,
         ..Default::default()
     };
-    let bytes = typst_pdf::pdf(&document, &options)
+    let mut bytes = typst_pdf::pdf(&document, &options)
         .map_err(|errs| map_errors(world, maps, &errs, ErrorCode::E006))?;
+    if let Some(levels) = &settings.outline_levels {
+        bytes = normalize_outline(bytes, levels)?;
+    }
 
     mapped_warnings
         .sort_by(|a, b| (&a.page, a.line, &a.message).cmp(&(&b.page, b.line, &b.message)));
@@ -141,6 +146,160 @@ pub fn compile_pdf(
                 e
             })
             .collect());
+    }
+
+    fn normalize_outline(bytes: Vec<u8>, levels: &[usize]) -> Result<Vec<u8>, Vec<HideoError>> {
+        let mut document = lopdf::Document::load_mem(&bytes).map_err(|e| {
+            vec![HideoError::new(
+                ErrorCode::E006,
+                format!("cannot read PDF outline: {e}"),
+            )]
+        })?;
+        let catalog = document.catalog().map_err(|e| {
+            vec![HideoError::new(
+                ErrorCode::E006,
+                format!("cannot read PDF catalog: {e}"),
+            )]
+        })?;
+        let Some(outlines_id) = catalog
+            .get(b"Outlines")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+        else {
+            return Ok(bytes);
+        };
+        let first = document
+            .get_dictionary(outlines_id)
+            .ok()
+            .and_then(|outlines| outlines.get(b"First").ok().cloned());
+        let Some(first) = first else {
+            return Ok(bytes);
+        };
+
+        let mut nodes = Vec::new();
+        flatten_outline(&document, first, &mut nodes);
+        if nodes.len() != levels.len() {
+            return Err(vec![HideoError::new(
+                ErrorCode::E006,
+                format!(
+                    "cannot normalize PDF outline: expected {} bookmarks, found {}",
+                    levels.len(),
+                    nodes.len()
+                ),
+            )]);
+        }
+        for level in levels {
+            if *level == 0 {
+                return Err(vec![HideoError::new(
+                    ErrorCode::E006,
+                    "cannot normalize PDF outline: bookmark level is zero",
+                )]);
+            }
+        }
+
+        const CHILDREN_KEYS: [&[u8]; 3] = [b"Parent", b"Prev", b"Next"];
+        for node in &nodes {
+            let dict = document.get_dictionary_mut(*node).unwrap();
+            for key in CHILDREN_KEYS {
+                dict.remove(key);
+            }
+            dict.remove(b"First");
+            dict.remove(b"Last");
+            dict.remove(b"Count");
+        }
+        document
+            .get_dictionary_mut(outlines_id)
+            .unwrap()
+            .remove(b"First");
+        document
+            .get_dictionary_mut(outlines_id)
+            .unwrap()
+            .remove(b"Last");
+
+        let mut stack: Vec<lopdf::ObjectId> = Vec::new();
+        for (&node, &level) in nodes.iter().zip(levels) {
+            stack.truncate(level.saturating_sub(1));
+            if level == 1 {
+                append_outline_child(&mut document, outlines_id, node);
+            } else {
+                let Some(parent) = stack.last().copied() else {
+                    return Err(vec![HideoError::new(
+                        ErrorCode::E006,
+                        format!("cannot normalize PDF outline: missing parent for level {level}"),
+                    )]);
+                };
+                append_outline_child(&mut document, parent, node);
+            }
+            stack.push(node);
+        }
+
+        let mut output = Vec::new();
+        document.save_to(&mut output).map_err(|e| {
+            vec![HideoError::new(
+                ErrorCode::E006,
+                format!("cannot save normalized PDF outline: {e}"),
+            )]
+        })?;
+        Ok(output)
+    }
+
+    fn flatten_outline(
+        document: &lopdf::Document,
+        object: lopdf::Object,
+        output: &mut Vec<lopdf::ObjectId>,
+    ) {
+        let Some(id) = object.as_reference().ok() else {
+            return;
+        };
+        output.push(id);
+        let Ok(dictionary) = document.get_dictionary(id) else {
+            return;
+        };
+        if let Ok(first) = dictionary.get(b"First") {
+            flatten_outline(document, first.clone(), output);
+        }
+        if let Ok(next) = dictionary.get(b"Next") {
+            flatten_outline(document, next.clone(), output);
+        }
+    }
+
+    fn append_outline_child(
+        document: &mut lopdf::Document,
+        parent: lopdf::ObjectId,
+        child: lopdf::ObjectId,
+    ) {
+        let previous = document
+            .get_dictionary(parent)
+            .ok()
+            .and_then(|dict| dict.get(b"Last").ok())
+            .and_then(|object| object.as_reference().ok());
+        document
+            .get_dictionary_mut(parent)
+            .unwrap()
+            .set("Count", 0_i64);
+        if let Some(previous) = previous {
+            document
+                .get_dictionary_mut(previous)
+                .unwrap()
+                .set("Next", child);
+            document
+                .get_dictionary_mut(child)
+                .unwrap()
+                .set("Prev", previous);
+        } else {
+            document
+                .get_dictionary_mut(parent)
+                .unwrap()
+                .set("First", child);
+        }
+        document
+            .get_dictionary_mut(parent)
+            .unwrap()
+            .set("Last", child);
+        document
+            .get_dictionary_mut(child)
+            .unwrap()
+            .set("Parent", parent);
     }
 
     Ok(CompiledPdf {
@@ -318,6 +477,7 @@ mod tests {
             timestamp: dt,
             warnings_as_errors: false,
             suppressed_warnings: Vec::new(),
+            outline_levels: None,
         };
         let res = compile_pdf(&world, &maps, &settings).unwrap();
         assert_eq!(res.warnings.len(), 2);
@@ -328,6 +488,7 @@ mod tests {
             timestamp: dt,
             warnings_as_errors: true,
             suppressed_warnings: Vec::new(),
+            outline_levels: None,
         };
         let res_err = compile_pdf(&world, &maps, &settings_err);
         assert!(res_err.is_err());
@@ -338,6 +499,7 @@ mod tests {
             timestamp: dt,
             warnings_as_errors: true,
             suppressed_warnings: vec![WarningCode::W010],
+            outline_levels: None,
         };
         let res_suppressed = compile_pdf(&world, &maps, &settings_suppressed).unwrap();
         assert!(res_suppressed.warnings.is_empty());
@@ -374,6 +536,7 @@ mod tests {
             timestamp: Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap(),
             warnings_as_errors: false,
             suppressed_warnings: Vec::new(),
+            outline_levels: None,
         }
     }
 

@@ -16,10 +16,10 @@ use crate::discover::{self, SourcePage, TierSources};
 use crate::error::{DiagnosticCollector, ErrorCode, HideoError, Warning, WarningCode};
 use crate::images::{self, ImageSettings, ProcessedImage};
 use crate::linkmap::{LinkMap, UnresolvedLink};
-use crate::markdown::emit::{AssetSink, emit_page};
+use crate::markdown::emit::{AssetSink, emit_page_without_bookmarks};
 use crate::page::{Page, assign_keys};
 use crate::report::Stats;
-use crate::template::{self, PageEntry};
+use crate::template::{self, FolderHeading, PageEntry};
 use crate::world;
 
 #[derive(Debug, Clone)]
@@ -222,6 +222,7 @@ struct Prepared {
     maps: SourceMaps,
     image_count: usize,
     diagram_count: usize,
+    outline_levels: Vec<usize>,
 }
 
 /// Image handling shared by heroes, covers and body images.
@@ -389,7 +390,7 @@ fn prepare_tier(
             diag: DiagnosticCollector::default(),
             body_images: 0,
         };
-        let emitted = emit_page(
+        let emitted = emit_page_without_bookmarks(
             page,
             &mut links,
             &mut assets,
@@ -449,13 +450,66 @@ fn prepare_tier(
     }
 
     // 5. Assemble the virtual file tree.
-    let entries: Vec<PageEntry> = pages
-        .iter()
-        .enumerate()
-        .map(|(i, page)| PageEntry {
+    let mut previous_folders: Vec<String> = Vec::new();
+    let mut folder_keys: BTreeMap<String, String> = BTreeMap::new();
+    let mut used_folder_keys: BTreeSet<String> = BTreeSet::new();
+    let mut entries: Vec<PageEntry> = Vec::with_capacity(pages.len());
+    for (i, page) in pages.iter().enumerate() {
+        let relative = page
+            .rel_path
+            .strip_prefix(&format!("{}/", tier.tier))
+            .unwrap_or(&page.rel_path);
+        let components: Vec<&str> = relative.split('/').collect();
+        let folders: Vec<String> = components[..components.len().saturating_sub(1)]
+            .iter()
+            .map(|component| (*component).to_string())
+            .collect();
+        let common = previous_folders
+            .iter()
+            .zip(&folders)
+            .take_while(|(left, right)| left == right)
+            .count();
+        let folder_headings = folders
+            .iter()
+            .enumerate()
+            .skip(common)
+            .map(|(index, name)| {
+                let path = folders[..=index].join("/");
+                let full_path = format!("{}/{path}", tier.tier);
+                let key = folder_keys.entry(full_path.clone()).or_insert_with(|| {
+                    let base = crate::page::page_key(&full_path);
+                    let mut key = base.clone();
+                    let mut suffix = 1;
+                    while used_folder_keys.contains(&key) {
+                        suffix += 1;
+                        key = format!("{base}-{suffix}");
+                    }
+                    used_folder_keys.insert(key.clone());
+                    key
+                });
+                FolderHeading {
+                    level: index + 1,
+                    title: crate::config::section_title(name),
+                    key: key.clone(),
+                }
+            })
+            .collect();
+        previous_folders = folders;
+        entries.push(PageEntry {
             page,
+            folders: folder_headings,
             hero: hero_vpaths[i].clone(),
             number: i + 1,
+        });
+    }
+    let outline_levels = entries
+        .iter()
+        .flat_map(|entry| {
+            entry
+                .folders
+                .iter()
+                .map(|folder| folder.level)
+                .chain(std::iter::once(entry.page.rel_path.split('/').count() - 1))
         })
         .collect();
     if build_mode {
@@ -494,6 +548,7 @@ fn prepare_tier(
         maps,
         image_count: hero_count + body_images,
         diagram_count,
+        outline_levels,
     }
 }
 
@@ -758,6 +813,7 @@ fn compile_tier(
         timestamp: build.today,
         warnings_as_errors: config.diagnostics.warnings_as_errors,
         suppressed_warnings: config.diagnostics.suppress_warnings.clone(),
+        outline_levels: Some(prepared.outline_levels.clone()),
     };
     let compiled = compile::compile_pdf(&world, &prepared.maps, &settings)?;
     let path = build.output.join(format!("{tier}.pdf"));
@@ -1179,6 +1235,7 @@ mod tests {
             image_count: 0,
             diagram_count: 0,
             unresolved: vec![],
+            outline_levels: vec![],
         };
         prepared
             .files
@@ -1205,6 +1262,7 @@ mod tests {
             image_count: 0,
             diagram_count: 0,
             unresolved: vec![],
+            outline_levels: vec![],
         };
         prepared.files.insert(
             "main.typ".into(),
@@ -1233,6 +1291,7 @@ mod tests {
             image_count: 0,
             diagram_count: 0,
             unresolved: vec![],
+            outline_levels: vec![],
         };
         let res = compile_tier(&cfg, &build, "required", &prepared);
         assert!(res.is_err());

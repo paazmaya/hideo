@@ -79,8 +79,37 @@ pub fn emit_page(
     text_area_pt: (f64, f64),
     auto_mailto: bool,
 ) -> Emitted {
+    emit_page_inner(page, links, assets, text_area_pt, auto_mailto, true)
+}
+
+/// Emit a page whose navigation is supplied by Hideo's hidden page and folder headings.
+pub(crate) fn emit_page_without_bookmarks(
+    page: &Page,
+    links: &mut LinkMap,
+    assets: &mut dyn AssetSink,
+    text_area_pt: (f64, f64),
+    auto_mailto: bool,
+) -> Emitted {
+    emit_page_inner(page, links, assets, text_area_pt, auto_mailto, false)
+}
+
+fn emit_page_inner(
+    page: &Page,
+    links: &mut LinkMap,
+    assets: &mut dyn AssetSink,
+    text_area_pt: (f64, f64),
+    auto_mailto: bool,
+    bookmark_headings: bool,
+) -> Emitted {
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut emitter = Emitter::new(page, links, assets, text_area_pt, auto_mailto);
+        let mut emitter = Emitter::new(
+            page,
+            links,
+            assets,
+            text_area_pt,
+            auto_mailto,
+            bookmark_headings,
+        );
         let lines = emitter.blocks(None);
         (lines, emitter.diag)
     }));
@@ -128,6 +157,7 @@ struct Emitter<'a, 'l> {
     in_table: bool,
     plain: String,
     auto_mailto: bool,
+    bookmark_headings: bool,
 }
 
 fn is_block_start(tag: &Tag) -> bool {
@@ -159,6 +189,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
         assets: &'l mut dyn AssetSink,
         text_area_pt: (f64, f64),
         auto_mailto: bool,
+        bookmark_headings: bool,
     ) -> Self {
         let events = Parser::new_ext(&page.body, parser_options())
             .into_offset_iter()
@@ -176,6 +207,7 @@ impl<'a, 'l> Emitter<'a, 'l> {
             in_table: false,
             plain: String::new(),
             auto_mailto,
+            bookmark_headings,
         }
     }
 
@@ -454,10 +486,14 @@ impl<'a, 'l> Emitter<'a, 'l> {
             Some(h) => LinkMap::heading_label(&self.page.key, &h.id),
             None => format!("{}--h{index}", self.page.key),
         };
-        vec![Line::new(
-            format!("#heading(level: {level})[{inner}] <{label}>"),
-            line,
-        )]
+        let heading = if self.bookmark_headings {
+            format!("#heading(level: {level})[{inner}] <{label}>")
+        } else {
+            format!(
+                "#heading(outlined: false, bookmarked: false, level: {level})[{inner}] <{label}>"
+            )
+        };
+        vec![Line::new(heading, line)]
     }
 
     fn code_block(&mut self, kind: CodeBlockKind<'a>, line: usize) -> Vec<Line> {
@@ -1560,7 +1596,7 @@ Inline <b>html</b> is dropped with a warning.
         let p = page("body text");
         let mut links = LinkMap::new("t", std::slice::from_ref(&p), [], Path::new("nowhere"));
         let mut assets = NoAssets;
-        let mut emitter = Emitter::new(&p, &mut links, &mut assets, (453.5, 700.0), true);
+        let mut emitter = Emitter::new(&p, &mut links, &mut assets, (453.5, 700.0), true, true);
 
         // 1. line_at past end of events (line 183)
         assert_eq!(emitter.line_at(9999), p.byte_to_line(p.body.len()));

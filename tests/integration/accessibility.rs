@@ -171,6 +171,7 @@ fn test_table_negative_control_plain_row_is_td() {
         timestamp: Datetime::from_ymd_hms(2000, 1, 1, 0, 0, 0).unwrap(),
         warnings_as_errors: false,
         suppressed_warnings: Vec::new(),
+        outline_levels: None,
     };
     let pdf = compile_pdf(&world, &SourceMaps::new(), &settings).unwrap();
     let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();
@@ -357,6 +358,10 @@ fn test_toc_entry_structure() {
         "Rust Code",
         "Simple Table",
         "A body image scaled",
+        "Deep Page",
+        "Another Deep Page",
+        "Third Deep Page",
+        "Final Page",
         "Unicode headings",
     ]
     .map(|marker| {
@@ -366,7 +371,84 @@ fn test_toc_entry_structure() {
     });
     assert_eq!(
         destination_pages, expected,
-        "every TOCI link reaches its displayed heading"
+        "every page TOCI link reaches its displayed heading (folder groups are not links)"
+    );
+}
+
+fn outline_nodes(doc: &lopdf::Document, first: Object, depth: usize) -> Vec<(String, usize)> {
+    fn resolve<'a>(doc: &'a lopdf::Document, object: &'a Object) -> &'a Object {
+        match object {
+            Object::Reference(id) => doc.get_object(*id).unwrap(),
+            _ => object,
+        }
+    }
+
+    let mut result = Vec::new();
+    let mut current = Some(first);
+    while let Some(object) = current {
+        let dict = resolve(doc, &object).as_dict().unwrap();
+        let title =
+            String::from_utf8_lossy(dict.get(b"Title").unwrap().as_str().unwrap()).into_owned();
+        result.push((title, depth));
+        if let Ok(child) = dict.get(b"First") {
+            result.extend(outline_nodes(doc, child.clone(), depth + 1));
+        }
+        current = dict.get(b"Next").ok().cloned();
+    }
+    result
+}
+
+#[test]
+fn test_pdf_outline_groups_folder_pages() {
+    let (_out, doc) = full_required();
+    let outlines = doc
+        .catalog()
+        .unwrap()
+        .get(b"Outlines")
+        .unwrap()
+        .as_reference()
+        .and_then(|id| doc.get_object(id))
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let nodes = outline_nodes(&doc, outlines.get(b"First").unwrap().clone(), 0);
+    assert!(
+        nodes.contains(&("Sub".into(), 0)),
+        "folder bookmark: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Nested Page".into(), 1)),
+        "folder contains the nested page: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Final section".into(), 0)),
+        "second folder: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Deep area".into(), 1)),
+        "deeper folder retains its level: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Deep Page".into(), 2)),
+        "deeper folder contains its page: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Another Deep Page".into(), 2)),
+        "second deep page remains in the same group: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Third Deep Page".into(), 2)),
+        "third deep page remains in the same group: {nodes:?}"
+    );
+    assert!(
+        nodes.contains(&("Final Page".into(), 1)),
+        "page in the parent folder remains in that group: {nodes:?}"
+    );
+    assert!(
+        nodes
+            .iter()
+            .all(|(title, _)| title != "Unicode headings: Äiti ja öljy"),
+        "body headings remain tagged but do not duplicate navigation bookmarks: {nodes:?}"
     );
 }
 
