@@ -98,7 +98,8 @@ pub struct CoverConfig {
     #[serde(alias = "tier_line")]
     pub subtitle: String,
     pub panel_width_mm: f64,
-    pub panel_offset_mm: f64,
+    #[serde(alias = "panel_offset_mm")]
+    pub panel_margin_mm: f64,
 }
 
 impl Default for CoverConfig {
@@ -108,7 +109,7 @@ impl Default for CoverConfig {
             author: String::new(),
             subtitle: "{Tier} course material".to_string(),
             panel_width_mm: 170.0,
-            panel_offset_mm: 20.0,
+            panel_margin_mm: 20.0,
         }
     }
 }
@@ -303,6 +304,21 @@ impl Config {
         if self.cover.title.trim().is_empty() {
             errors.push("cover.title must not be empty (it becomes the PDF title)".to_string());
         }
+        if !self.cover.panel_width_mm.is_finite() || self.cover.panel_width_mm <= 0.0 {
+            errors.push("cover.panel_width_mm must be finite and greater than 0".to_string());
+        }
+        if !self.cover.panel_margin_mm.is_finite() || self.cover.panel_margin_mm < 0.0 {
+            errors.push("cover.panel_margin_mm must be finite and non-negative".to_string());
+        }
+        if self.cover.panel_width_mm + 2.0 * self.cover.panel_margin_mm > self.page.width_mm {
+            errors.push(
+                "cover.panel_width_mm plus two panel margins must fit within page.width_mm"
+                    .to_string(),
+            );
+        }
+        if 2.0 * self.cover.panel_margin_mm >= 297.0 {
+            errors.push("cover.panel_margin_mm must be less than half the page height".to_string());
+        }
         if self.diagrams.backend == DiagramBackendConfig::External
             && self.diagrams.command.trim().is_empty()
         {
@@ -415,6 +431,8 @@ title = "T"
     fn test_config_defaults() {
         let c = load(MINIMAL).unwrap();
         assert_eq!(c.page.width_mm, 210.0);
+        assert_eq!(c.cover.panel_width_mm, 170.0);
+        assert_eq!(c.cover.panel_margin_mm, 20.0);
         assert_eq!(c.images.jpeg_quality, 70);
         assert_eq!(c.contents.columns, 2);
         assert!(c.accessibility.pdf_ua && c.accessibility.tagged);
@@ -501,6 +519,9 @@ title = "T"
         );
         assert!(load(&format!("{MINIMAL}\n[diagrams]\ncommand = \"\"\n")).is_err());
         assert!(load(&MINIMAL.replace("title = \"T\"", "title = \"\"")).is_err());
+        let too_wide = MINIMAL.replace("title = \"T\"", "title = \"T\"\npanel_width_mm = 180");
+        let err = load(&too_wide).unwrap_err();
+        assert!(err.0.contains("must fit within page.width_mm"), "{}", err.0);
         assert_eq!(capitalize(""), "");
         assert!(!is_valid_lang("en-latn-us-extra"));
     }
@@ -543,10 +564,11 @@ title = "T"
     fn test_empty_tier_subtitle_and_legacy_cover_tier_line() {
         let text = MINIMAL.replace(
             "title = \"T\"",
-            "title = \"T\"\ntier_line = \"Old {Tier} line\"",
+            "title = \"T\"\ntier_line = \"Old {Tier} line\"\npanel_offset_mm = 18",
         );
         let c = load(&format!("{text}\n[tier.required]\nsubtitle = \"\"\n")).unwrap();
         assert_eq!(c.cover.subtitle, "Old {Tier} line");
+        assert_eq!(c.cover.panel_margin_mm, 18.0);
         assert_eq!(c.tier_subtitle("required"), "");
     }
 

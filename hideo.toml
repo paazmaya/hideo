@@ -66,11 +66,16 @@ subtitle = "{Tier} course material"
 # subtitle = "Kurssimateriaali: {tier}"
 # The previous key `tier_line` remains accepted as an alias.
 
-# Width of the panel that holds the cover text, and how far it is moved from the
-# page edge, in millimetres.
-# Default: 170 and 20
+# Width of the cover text panel, in millimetres.
+# Default: 170, leaving a 20 mm margin on both sides of an A4 page.
 panel_width_mm = 170
-panel_offset_mm = 20
+
+# Minimum inset from each paper edge, in millimetres. The panel is left-aligned to
+# this margin and vertically centered on the lower golden cut (61.8% down the page).
+# The panel width plus both side margins must fit within page.width_mm.
+# Default: 20
+panel_margin_mm = 20
+# The previous key `panel_offset_mm` remains accepted as an alias.
 
 # ---------------------------------------------------------------------------
 # [contents] - the contents page

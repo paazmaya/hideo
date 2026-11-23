@@ -14,6 +14,7 @@
 #let h2-color = rgb("#3D2A7A")
 #let h3-color = rgb("#52389A")
 #let panel-color = rgb("#2E1A5C")
+#let golden-cut = 0.61803398875
 
 // The whole book: document metadata, language, page geometry and styles.
 #let book(lang: "en", title: "", author: "", body) = {
@@ -159,15 +160,15 @@
 }
 
 // Full-bleed cover: image, then a panel with title, optional subtitle and author.
-#let cover(picture, title, subtitle, author, panel-width, panel-offset) = page(
+#let cover(picture, title, subtitle, author, panel-width, panel-margin) = page(
   margin: 0pt,
   footer: none,
   {
     pdf.artifact(kind: "layout", image(picture, width: 100%, height: 100%, fit: "cover"))
     place(
-      top + left,
-      dx: panel-offset,
-      dy: panel-offset,
+      left + horizon,
+      dx: panel-margin,
+      dy: 297mm * (golden-cut - 0.5),
       block(width: panel-width, fill: panel-color, radius: 4pt, inset: 16pt, {
         set text(fill: white)
         set par(spacing: 0.9em)

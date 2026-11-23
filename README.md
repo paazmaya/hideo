@@ -131,7 +131,7 @@ your own file. Anything you leave out falls back to the default.
 | ----------------- | ------------------------------------------------- |
 | (top level)       | `tiers`, `ignore_prefixes`                        |
 | `[book]`          | document language                                 |
-| `[cover]`         | title, author, fallback subtitle, text panel size |
+| `[cover]`         | title, author, fallback subtitle, panel size and margin |
 | `[tier.<name>]`   | optional per-tier cover subtitle                  |
 | `[contents]`      | heading and number of columns                     |
 | `[page]`          | page width and margins                            |

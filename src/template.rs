@@ -64,7 +64,7 @@ pub fn main_typ(
         typst_string(&config.tier_subtitle(tier)),
         typst_string(&config.cover.author),
         num(config.cover.panel_width_mm),
-        num(config.cover.panel_offset_mm),
+        num(config.cover.panel_margin_mm),
     ));
 
     let hero = contents_hero
