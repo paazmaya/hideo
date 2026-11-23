@@ -53,7 +53,7 @@ blocks:
   # builds; the release profile is built by the release pipeline for tags.
   - name: Linux x86_64 (lint, test, reproducibility)
     run:
-      when: "change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
+      when: "change_in(['/src/', '/tests/', '/assets/', '/.config/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       prologue:
         commands:
@@ -61,20 +61,22 @@ blocks:
       jobs:
         - name: fmt, clippy, test, build
           commands:
-            # cargo-binstall downloads a prebuilt cargo-deny instead of compiling it.
+            # cargo-binstall downloads prebuilt cargo-deny and cargo-nextest instead of compiling them.
             - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-            - cargo binstall --no-confirm --locked cargo-deny cargo-tarpaulin
+            - cargo binstall --no-confirm --locked cargo-deny cargo-nextest
             - cargo deny check
             - cargo fmt --all --check
             - cargo clippy --all-targets --locked -- -D warnings
-            - cargo tarpaulin --out Xml
-            - test-results publish cobertura.xml
+            - cargo nextest run --profile ci --locked
             - export SOURCE_DATE_EPOCH=1700000000
             - ./target/debug/hideo build --input tests/fixtures/full --output out1 --jobs 1
             - ./target/debug/hideo build --input tests/fixtures/full --output out2 --jobs 4
             - for f in out1/*.pdf; do cmp "$f" "out2/$(basename "$f")"; done
             - artifact push workflow out1 --destination fixture-pdfs
       epilogue:
+        always:
+          commands:
+            - test-results publish target/nextest/ci/junit.xml
         on_pass:
           commands:
             - cache has_key target-linux-$(checksum Cargo.lock) || (cache delete target-linux || true; cache store target-linux-$(checksum Cargo.lock),target-linux target)
@@ -83,7 +85,7 @@ blocks:
   # minute, and Linux x86_64 already covers every branch.
   - name: Test (macOS)
     run:
-      when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
+      when: "(branch = 'main' OR tag =~ '.*') AND change_in(['/src/', '/tests/', '/assets/', '/.config/', '/Cargo.toml', '/Cargo.lock', '/rust-toolchain.toml', '/.semaphore/'], {default_branch: 'main'})"
     task:
       agent:
         machine:

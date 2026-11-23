@@ -819,6 +819,19 @@ classDiagram
         std::fs::write(&invalid_path, "not json").unwrap();
         assert!(Theme::from_file(&invalid_path).is_err());
 
+        let array_path = dir.path().join("array.json");
+        std::fs::write(&array_path, "[1, 2, 3]").unwrap();
+        let err_array = Theme::from_file(&array_path).unwrap_err();
+        assert!(
+            err_array.contains("must contain a JSON object"),
+            "{err_array}"
+        );
+
+        let bad_vars_path = dir.path().join("bad_vars.json");
+        std::fs::write(&bad_vars_path, "{\"themeVariables\": 42}").unwrap();
+        let err_vars = Theme::from_file(&bad_vars_path).unwrap_err();
+        assert!(err_vars.contains("must be a JSON object"), "{err_vars}");
+
         let missing = dir.path().join("missing.json");
         assert!(Theme::from_file(&missing).is_err());
     }

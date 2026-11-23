@@ -293,6 +293,13 @@ mod tests {
         assert_eq!(page_vpath(1234), "pages/1234.typ");
     }
 
+    #[test]
+    fn main_typ_with_none_contents_hero() {
+        let cfg = config();
+        let main = main_typ(&cfg, "req", &[], "images/c.jpg", None);
+        assert!(main.contains("#contents(none, \"Contents\", 2)"), "{main}");
+    }
+
     // ---- palette contrast (plan 7.10 item 8, Appendix B) ----------------------------------
 
     /// `#RRGGBB` as linear-light relative luminance (WCAG 2.x).

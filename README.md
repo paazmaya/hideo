@@ -216,11 +216,24 @@ character coverage note under Accessibility.
 
 ```sh
 cargo test                       # unit, property and end-to-end tests
+cargo nextest run                # faster parallel test execution with isolated processes
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 cargo test --features native-diagrams
 cargo deny check                 # licenses and security advisories, see below
 ```
+
+In CI, tests run with [cargo-nextest](https://nexte.st) using the `ci` profile configured in
+[`.config/nextest.toml`](.config/nextest.toml):
+
+```sh
+cargo nextest run --profile ci
+```
+
+This exports structured JUnit XML test reports to `target/nextest/ci/junit.xml`. In Semaphore CI,
+`test-results publish target/nextest/ci/junit.xml` runs in the task's `epilogue.always` block so that
+individual test suites, case execution times, and failure messages are always recorded and visible in
+the Semaphore CI test dashboard regardless of whether tests pass or fail.
 
 `cargo deny check` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), which is not
 part of Rust. Install it once with `cargo install cargo-deny --locked`, or download a prebuilt

@@ -368,6 +368,12 @@ mod tests {
         assert!(!is_external("a.md"));
         assert!(!is_external("a:b")); // one-letter "scheme"
         assert!(!is_external("./a.md#x:y"));
+        assert!(!is_external(""));
+        assert!(!is_external(":"));
+        assert!(!is_external(":abc"));
+        assert!(!is_external("123:abc"));
+        assert!(!is_external("a$:abc"));
+        assert!(is_external("//example.com/test"));
     }
 
     #[test]

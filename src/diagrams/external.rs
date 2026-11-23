@@ -297,6 +297,131 @@ mod tests {
     }
 
     #[test]
+    fn test_gazu_render_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let json_out = json!({
+            "blocks": [{
+                "t": "RawBlock",
+                "c": ["html", "<svg><text>rendered-by-gazu</text></svg>"]
+            }]
+        })
+        .to_string();
+        let json_path = dir.path().join("out.json");
+        std::fs::write(&json_path, &json_out).unwrap();
+
+        let renderer = if cfg!(windows) {
+            let path = dir.path().join("gazu.cmd");
+            std::fs::write(
+                &path,
+                format!("@echo off\r\ntype \"{}\"\r\n", json_path.display()),
+            )
+            .unwrap();
+            ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let path = dir.path().join("gazu");
+                std::fs::write(
+                    &path,
+                    format!("#!/bin/sh\ncat \"{}\"\n", json_path.display()),
+                )
+                .unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+                ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
+            }
+            #[allow(unreachable_code)]
+            {
+                ExternalRenderer::new("gazu", &[], 20)
+            }
+        };
+
+        assert!(renderer.gazu);
+        assert!(renderer.cache_id().ends_with("|pandoc-filter"));
+        let svg = renderer
+            .render("graph TD; A-->B", &Theme::embedded())
+            .unwrap();
+        assert_eq!(svg, "<svg><text>rendered-by-gazu</text></svg>");
+    }
+
+    #[test]
+    fn test_gazu_render_failure_reports_detail() {
+        let dir = tempfile::tempdir().unwrap();
+        let json_fail = json!({
+            "blocks": [{
+                "t": "CodeBlock",
+                "c": [["", ["mermaid"], []], "not a diagram"]
+            }]
+        })
+        .to_string();
+        let json_path = dir.path().join("fail.json");
+        std::fs::write(&json_path, &json_fail).unwrap();
+
+        // 1. With stderr output
+        let renderer = if cfg!(windows) {
+            let path = dir.path().join("gazu.cmd");
+            std::fs::write(
+                &path,
+                format!(
+                    "@echo off\r\necho stderr-reason 1>&2\r\ntype \"{}\"\r\n",
+                    json_path.display()
+                ),
+            )
+            .unwrap();
+            ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let path = dir.path().join("gazu");
+                std::fs::write(
+                    &path,
+                    format!(
+                        "#!/bin/sh\necho stderr-reason >&2\ncat \"{}\"\n",
+                        json_path.display()
+                    ),
+                )
+                .unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+                ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
+            }
+            #[allow(unreachable_code)]
+            {
+                ExternalRenderer::new("gazu", &[], 20)
+            }
+        };
+
+        let err = renderer
+            .render("graph TD; A-->B", &Theme::embedded())
+            .unwrap_err();
+        assert!(err.to_string().contains("stderr-reason"));
+
+        // 2. Without stderr output
+        if cfg!(windows) {
+            let path = dir.path().join("gazu.cmd");
+            std::fs::write(
+                &path,
+                format!("@echo off\r\ntype \"{}\"\r\n", json_path.display()),
+            )
+            .unwrap();
+        } else {
+            #[cfg(unix)]
+            {
+                let path = dir.path().join("gazu");
+                std::fs::write(
+                    &path,
+                    format!("#!/bin/sh\ncat \"{}\"\n", json_path.display()),
+                )
+                .unwrap();
+            }
+        }
+        let err2 = renderer
+            .render("graph TD; A-->B", &Theme::embedded())
+            .unwrap_err();
+        assert!(err2.to_string().contains("did not render the diagram"));
+    }
+
+    #[test]
     fn test_diagram_external_renders() {
         let (_dir, r) = script(
             "printf '<svg>' > \"$1\"; cat \"$2\" >> \"$1\"; printf '</svg>' >> \"$1\"",

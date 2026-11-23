@@ -70,4 +70,14 @@ mod tests {
         assert_eq!(lead_of("**Some *nested*.** rest"), None);
         assert_eq!(lead_of("*Emphasis.* rest"), None);
     }
+
+    #[test]
+    fn test_detect_lead_empty_and_short() {
+        assert_eq!(detect_lead(&[]), None);
+        assert_eq!(detect_lead(&[Event::Start(Tag::Strong)]), None);
+        assert_eq!(
+            detect_lead(&[Event::Start(Tag::Strong), Event::Text("Note.".into())]),
+            None
+        );
+    }
 }
