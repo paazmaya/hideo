@@ -341,7 +341,7 @@ mod tests {
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
                 ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
             }
-            #[allow(unreachable_code)]
+            #[cfg(not(unix))]
             {
                 ExternalRenderer::new("gazu", &[], 20)
             }
@@ -396,7 +396,7 @@ mod tests {
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
                 ExternalRenderer::new(&path.to_string_lossy(), &[], 20)
             }
-            #[allow(unreachable_code)]
+            #[cfg(not(unix))]
             {
                 ExternalRenderer::new("gazu", &[], 20)
             }
