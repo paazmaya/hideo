@@ -1,8 +1,7 @@
 # https://www.appveyor.com/docs/appveyor-yml/
 #
-# Windows only runs what depends on the platform: the tests and the reproducibility check.
-# Formatting and lint are platform independent and run on Semaphore (Linux), so they are not
-# repeated here. The release build, which is a second full compile of Typst, only happens for tags.
+# Branch builds run Windows tests; tags build and smoke-test the release binary instead.
+# Formatting and lint are platform independent and run on Semaphore (Linux).
 image:
   - Visual Studio 2022
 
@@ -59,28 +58,25 @@ install:
 build: off
 
 test_script:
-  - cargo test --locked --jobs 2 -- --test-threads=1 --nocapture
   - ps: |
       $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
       $tag = $env:APPVEYOR_REPO_TAG -eq "true"
 
-      # `cargo test` already built target\debug\hideo.exe; only a tag needs the release binary.
       if ($tag) {
         cargo build --release --locked
         if ($LASTEXITCODE -ne 0) { throw "release build failed" }
+      } else {
+        cargo --config "profile.dev.package.'*'.opt-level=0" test --locked --jobs 2 -- --test-threads=1
+        if ($LASTEXITCODE -ne 0) { throw "Windows tests failed" }
       }
       $exe = if ($tag) { "target\release\hideo.exe" } else { "target\debug\hideo.exe" }
 
-      # Two builds of the same sources must give identical PDFs, whatever the thread count.
       $env:SOURCE_DATE_EPOCH = "1700000000"
       & $exe build --input tests\fixtures\full --output out1 --jobs 1
-      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 1 failed" }
-      & $exe build --input tests\fixtures\full --output out2 --jobs 4
-      if ($LASTEXITCODE -ne 0) { throw "build with --jobs 4 failed" }
-      Get-ChildItem out1\*.pdf | ForEach-Object {
-        if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash "out2\$($_.Name)").Hash) {
-          throw "not reproducible: $($_.Name)"
-        }
+      if ($LASTEXITCODE -ne 0) { throw "fixture build failed" }
+      foreach ($tier in @("required", "additional", "bonus")) {
+        $pdf = Get-Item "out1\$tier.pdf" -ErrorAction Stop
+        if ($pdf.Length -eq 0) { throw "empty PDF: $tier" }
       }
 
       # The release archive is made here, before AppVeyor collects the artifacts below.

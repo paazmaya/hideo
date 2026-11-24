@@ -24,6 +24,8 @@ typst = "=0.15.1"
 typst-layout = "=0.15.1"
 typst-pdf = "=0.15.1"
 typst-kit = { version = "=0.15.1", features = ["embedded-fonts"] }
+# Pin the transitive dependency to the fix for RUSTSEC-2026-0592.
+url = { version = "=2.5.9", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 camino = "1.2.6"
 percent-encoding = "2.3.2"
@@ -51,10 +53,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage_nightly)"] }
 opt-level = 1
 
 [profile.dev.package."*"]
-opt-level = 3
+opt-level = 2
 
 [profile.release]
 lto = true # link-time optimisation, https://llvm.org/docs/LinkTimeOptimization.html
 codegen-units = 1 # single codegen unit
-opt-level = 3 # maximum optimisation
+opt-level = 2 # almost maximum optimisation
 strip = true # strip debug symbols
