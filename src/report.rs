@@ -145,6 +145,7 @@ pub fn write_text(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::error::{ErrorCode, HideoError, Warning, WarningCode};

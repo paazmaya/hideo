@@ -117,6 +117,7 @@ pub fn parse(content: &str) -> Result<(Frontmatter, String), FrontmatterError> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

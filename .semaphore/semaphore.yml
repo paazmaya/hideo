@@ -61,9 +61,9 @@ blocks:
       jobs:
         - name: fmt, clippy, test, build
           commands:
-            # cargo-binstall downloads prebuilt cargo-deny and cargo-nextest instead of compiling them.
+            # cargo-binstall downloads the test tools instead of compiling them.
             - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-            - cargo binstall --no-confirm --locked cargo-deny cargo-nextest
+            - cargo binstall --no-confirm --locked cargo-deny cargo-nextest cargo-llvm-cov
             - cargo deny check
             - cargo fmt --all --check
             - cargo clippy --all-targets --locked -- -D warnings
@@ -73,6 +73,15 @@ blocks:
             - ./target/debug/hideo build --input tests/fixtures/full --output out2 --jobs 4
             - for f in out1/*.pdf; do cmp "$f" "out2/$(basename "$f")"; done
             - artifact push workflow out1 --destination fixture-pdfs
+            - unset SOURCE_DATE_EPOCH
+            - cargo test --locked --no-default-features
+            - rustup toolchain install 1.92.0 --profile minimal
+            - CARGO_TARGET_DIR="$PWD/target-msrv" cargo +1.92.0 check --lib --locked
+            - rustup toolchain install nightly-2026-11-21 --profile minimal --component llvm-tools-preview
+            - export CARGO_TARGET_DIR="$PWD/target-unit-coverage"
+            - cargo +nightly-2026-11-21 llvm-cov --lib --locked --cobertura --output-path unit-coverage.xml
+            - cargo +nightly-2026-11-21 llvm-cov report --show-missing-lines
+            - artifact push workflow unit-coverage.xml
       epilogue:
         always:
           commands:

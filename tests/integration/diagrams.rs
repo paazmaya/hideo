@@ -250,9 +250,9 @@ fn test_check_does_not_run_the_backend() {
     assert_eq!(calls(&f), 0);
 }
 
-/// Whether a real `mmdc` can be started (it is a `.cmd` shim on Windows).
 fn real_mmdc_available() -> bool {
-    std::process::Command::new("mmdc")
+    let command = if cfg!(windows) { "mmdc.cmd" } else { "mmdc" };
+    std::process::Command::new(command)
         .arg("--version")
         .output()
         .map(|o| o.status.success())
@@ -262,13 +262,22 @@ fn real_mmdc_available() -> bool {
 #[test]
 fn test_real_mmdc_output_passes_the_post_conditions() {
     if !real_mmdc_available() {
+        assert!(
+            std::env::var_os("HIDEO_REQUIRE_MMDC").is_none(),
+            "mmdc is required but could not be started"
+        );
         eprintln!("skipped: mmdc is not installed");
         return;
     }
+    let input = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("diagrams"), input.path());
+    let config_path = input.path().join("hideo.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(config_path, format!("{config}\ncommand = \"mmdc\"\n")).unwrap();
     // The embedded theme must keep mermaid from emitting <foreignObject> and from naming a
     // font that is not embedded (a diagnostic here names the page and line).
     let out = tempfile::tempdir().unwrap();
-    let r = build(&fixture("diagrams"), out.path(), &[]);
+    let r = build(input.path(), out.path(), &[]);
     assert!(r.status.success(), "{}", stderr(&r));
     let err = stderr(&r);
     assert!(!err.contains("foreignObject"), "{err}");

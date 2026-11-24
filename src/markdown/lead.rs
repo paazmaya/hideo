@@ -29,6 +29,7 @@ pub fn detect_lead<'a>(events: &'a [Event<'a>]) -> Option<(&'a str, usize)> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::markdown::parser_options;

@@ -1,5 +1,7 @@
 //! hideo: a standalone Rust CLI for building PDF books from Markdown.
 
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 pub mod app;
 pub mod build;
 pub mod cli;

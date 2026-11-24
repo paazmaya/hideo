@@ -326,6 +326,31 @@ fn test_no_partial_pdf_on_error() {
 }
 
 #[test]
+fn test_failed_rebuild_preserves_existing_pdf() {
+    let input = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), input.path());
+    let output = tempfile::tempdir().unwrap();
+    let run = || {
+        hideo()
+            .args(["build", "-q", "--input"])
+            .arg(input.path())
+            .arg("--output")
+            .arg(output.path())
+            .output()
+            .unwrap()
+    };
+    let first = run();
+    assert!(first.status.success(), "{}", stderr(&first));
+    let pdf = output.path().join("required.pdf");
+    let original = std::fs::read(&pdf).unwrap();
+    std::fs::write(input.path().join("required/01_intro.md"), "invalid").unwrap();
+
+    let failed = run();
+    assert_eq!(failed.status.code(), Some(1), "{}", stderr(&failed));
+    assert_eq!(std::fs::read(pdf).unwrap(), original);
+}
+
+#[test]
 fn test_cache_is_written_and_reused() {
     let out = tempfile::tempdir().unwrap();
     let run = || {
@@ -346,6 +371,33 @@ fn test_cache_is_written_and_reused() {
         "scaled images are cached"
     );
     assert_eq!(first, run(), "warm build gives identical bytes");
+}
+
+#[test]
+fn test_changed_image_invalidates_cache_and_matches_cold_build() {
+    let input = tempfile::tempdir().unwrap();
+    copy_dir(&fixture("minimal"), input.path());
+    let warm = tempfile::tempdir().unwrap();
+    let cold = tempfile::tempdir().unwrap();
+    let run = |output: &std::path::Path| {
+        let result = hideo()
+            .args(["build", "-q", "--input"])
+            .arg(input.path())
+            .arg("--output")
+            .arg(output)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{}", stderr(&result));
+        std::fs::read(output.join("required.pdf")).unwrap()
+    };
+    let original = run(warm.path());
+    image::RgbImage::from_pixel(32, 32, image::Rgb([230, 20, 40]))
+        .save(input.path().join("images/hero.png"))
+        .unwrap();
+
+    let changed = run(warm.path());
+    assert_ne!(changed, original, "the image change must affect the PDF");
+    assert_eq!(changed, run(cold.path()), "warm and cold builds must agree");
 }
 
 #[test]

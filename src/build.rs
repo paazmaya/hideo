@@ -841,6 +841,7 @@ fn keep_typst(dir: &Utf8Path, files: &BTreeMap<String, Vec<u8>>) -> std::io::Res
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use std::fs;
@@ -884,6 +885,115 @@ mod tests {
         std::fs::create_dir_all(&req_dir).unwrap();
         std::fs::write(req_dir.join("p.md"), "---\nhero: h\n---\nx").unwrap(); // missing title
         assert!(generate(&bad_cfg, &bad_opt, "required").is_none());
+    }
+
+    #[test]
+    fn full_tier_builds_nested_pages_and_images() {
+        let root = Utf8PathBuf::from("tests/fixtures/full");
+        let cfg = Config::load(&root.join("hideo.toml")).unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let options = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(output.path().to_path_buf()).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2000, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &options);
+        assert!(
+            !outcome.diagnostics.has_errors(),
+            "{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(outcome.stats.tiers, 1);
+        assert_eq!(outcome.stats.pages, 10);
+        assert_eq!(outcome.stats.pdfs, 1);
+        assert!(outcome.stats.images > 0);
+        let pdf = lopdf::Document::load(output.path().join("required.pdf")).unwrap();
+        assert!(pdf.catalog().unwrap().get(b"Outlines").is_ok());
+    }
+
+    #[test]
+    fn warnings_as_errors_prevent_pdf_output() {
+        let mut cfg = minimal_config();
+        cfg.diagnostics.warnings_as_errors = true;
+        let output = tempfile::tempdir().unwrap();
+        let options = Options {
+            source_dir: Utf8PathBuf::from("tests/fixtures/minimal"),
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(output.path().to_path_buf()).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2000, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &options);
+        assert!(outcome.diagnostics.has_errors());
+        assert!(
+            outcome.diagnostics.errors[0]
+                .message
+                .contains("warnings are errors")
+        );
+        assert!(!output.path().join("required.pdf").exists());
+    }
+
+    #[test]
+    fn output_directory_failure_is_reported() {
+        let output = tempfile::tempdir().unwrap();
+        let blocked = output.path().join("not-a-directory");
+        fs::write(&blocked, b"preserve").unwrap();
+        let options = Options {
+            source_dir: Utf8PathBuf::from("tests/fixtures/minimal"),
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(blocked.clone()).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Off,
+                today: Datetime::from_ymd(2000, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&minimal_config(), &options);
+        assert!(outcome.diagnostics.has_errors());
+        assert!(
+            outcome.diagnostics.errors[0]
+                .message
+                .contains("cannot write")
+        );
+        assert_eq!(fs::read(blocked).unwrap(), b"preserve");
+    }
+
+    #[cfg(feature = "native-diagrams")]
+    #[test]
+    fn native_diagrams_are_rendered_into_the_pdf() {
+        let root = Utf8PathBuf::from("tests/fixtures/diagrams");
+        let cfg = Config::load(&root.join("hideo.toml")).unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let options = Options {
+            source_dir: root,
+            tiers: vec!["required".into()],
+            mode: Mode::Build(BuildOptions {
+                output: Utf8PathBuf::from_path_buf(output.path().to_path_buf()).unwrap(),
+                keep_typst: None,
+                diagrams: DiagramBackendConfig::Native,
+                today: Datetime::from_ymd(2000, 1, 1).unwrap(),
+            }),
+            verbose: false,
+        };
+        let outcome = run(&cfg, &options);
+        assert!(
+            !outcome.diagnostics.has_errors(),
+            "{:?}",
+            outcome.diagnostics
+        );
+        assert_eq!(outcome.stats.diagrams, 2);
+        assert!(output.path().join("required.pdf").is_file());
     }
 
     #[test]

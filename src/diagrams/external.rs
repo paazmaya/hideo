@@ -214,6 +214,7 @@ impl DiagramRenderer for ExternalRenderer {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -294,6 +295,16 @@ mod tests {
         })
         .to_string();
         assert!(gazu_svg(&output).unwrap_err().contains("not replaced"));
+    }
+
+    #[test]
+    fn gazu_rejects_malformed_renderer_output() {
+        assert!(gazu_svg("{").unwrap_err().contains("invalid output AST"));
+        let output = json!({
+            "blocks": [{"t": "RawBlock", "c": ["html", 42]}]
+        })
+        .to_string();
+        assert!(gazu_svg(&output).unwrap_err().contains("not a string"));
     }
 
     #[test]

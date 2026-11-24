@@ -76,6 +76,9 @@ hero_alt: "A mountain at dawn" # optional: makes the hero real content with alt 
 Body in the Markdown profile below.
 ```
 
+Still images can be PNG, JPEG, GIF, or WebP. These images are processed into JPEG
+for the PDF; transparency is composited onto white.
+
 The frontmatter keys are:
 
 | Key        | Required | Purpose                                                                          |
@@ -222,8 +225,36 @@ cargo nextest run                # faster parallel test execution with isolated 
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 cargo test --features native-diagrams
+cargo test --locked --no-default-features
+cargo +1.92.0 check --lib --locked
 cargo deny check                 # licenses and security advisories, see below
 ```
+
+Linux CI also runs `cargo +nightly-2026-11-21 llvm-cov --lib --locked`,
+publishes a Cobertura report as `unit-coverage.xml`, and prints missing lines.
+Nightly's coverage attribute excludes inline test modules from the denominator;
+the tests still run. The report measures library production lines exercised by
+unit tests, not CLI integration tests or the binary entry point. The 99%
+line-coverage target is informational, not a CI threshold, and coverage does
+not replace tests of observable PDF behavior. Locally, install `cargo-llvm-cov`
+and the pinned nightly toolchain with its `llvm-tools-preview` component first.
+New inline `#[cfg(test)]` modules must also have
+`#[cfg_attr(coverage_nightly, coverage(off))]` to keep test code out of the
+production-line denominator.
+
+Before a release, install the real Mermaid CLI (`mmdc`) and veraPDF, then run
+these separate checks. They fail if the required tool cannot be started:
+
+```sh
+HIDEO_REQUIRE_MMDC=1 cargo test --locked --test integration test_real_mmdc_output_passes_the_post_conditions
+cargo test --locked --test integration test_real_verapdf_validates_pdf_ua -- --ignored
+```
+
+On Windows, set `HIDEO_REQUIRE_MMDC` with `$env:HIDEO_REQUIRE_MMDC = "1"`.
+If veraPDF is not on `PATH`, set `VERAPDF` to its executable (on Windows,
+`verapdf.bat`). The veraPDF check validates a generated full-fixture PDF
+against PDF/UA-1 and inspects its report; it does not replace the manual
+screen-reader pass.
 
 In CI, tests run with [cargo-nextest](https://nexte.st) using the `ci` profile configured in
 [`.config/nextest.toml`](.config/nextest.toml):

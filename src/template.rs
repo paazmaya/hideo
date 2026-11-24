@@ -194,6 +194,7 @@ pub fn page_typ(config: &Config, entry: &PageEntry, markup: &PageMarkup) -> (Str
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::discover::SourcePage;

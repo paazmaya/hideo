@@ -204,6 +204,7 @@ impl DiagnosticCollector {
 pub struct ConfigError(pub String);
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

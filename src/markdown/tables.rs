@@ -272,6 +272,7 @@ pub fn emit(data: &TableData, layout: &Layout) -> Vec<(String, usize)> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

@@ -261,6 +261,7 @@ fn list_command(args: ListArgs, verbosity: Verbosity) -> Result<u8, ConfigError>
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -359,6 +360,43 @@ mod tests {
             }),
         };
         assert_eq!(run(cli_err), ExitCode::from(EXIT_USAGE));
+    }
+
+    #[test]
+    fn build_with_denied_unresolved_link_returns_content_error() {
+        let input = tempfile::tempdir().unwrap();
+        let tier = input.path().join("required");
+        std::fs::create_dir_all(&tier).unwrap();
+        std::fs::write(
+            input.path().join("hideo.toml"),
+            "tiers=[\"required\"]\n[book]\nlang=\"en\"\n[cover]\ntitle=\"T\"\n",
+        )
+        .unwrap();
+        std::fs::copy(
+            "tests/fixtures/minimal/images/hero.png",
+            tier.join("hero.png"),
+        )
+        .unwrap();
+        std::fs::write(
+            tier.join("page.md"),
+            "---\ntitle: Page\nhero: hero.png\n---\n[Missing](missing.md)\n",
+        )
+        .unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let args = BuildArgs {
+            input: Utf8PathBuf::from_path_buf(input.path().to_path_buf()).unwrap(),
+            output: Utf8PathBuf::from_path_buf(output.path().to_path_buf()).unwrap(),
+            config: None,
+            tiers: vec![],
+            deny_unresolved: true,
+            keep_typst: None,
+            quiet: true,
+            verbose: false,
+            jobs: Some(1),
+            diagrams: Some(DiagramBackend::Off),
+        };
+        assert_eq!(build_command(args, Verbosity::Info).unwrap(), EXIT_CONTENT);
+        assert!(output.path().join("required.pdf").is_file());
     }
 
     #[test]

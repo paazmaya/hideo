@@ -199,6 +199,7 @@ fn write_cache(path: &PathBuf, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use image::{ImageFormat, Rgba, RgbaImage};
@@ -245,6 +246,18 @@ mod tests {
     }
 
     #[test]
+    fn gif_and_webp_images_are_processed() {
+        let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(12, 8, Rgba([10, 20, 30, 255])));
+        for format in [ImageFormat::Gif, ImageFormat::WebP] {
+            let mut encoded = Cursor::new(Vec::new());
+            image.write_to(&mut encoded, format).unwrap();
+            let result = process_bytes(&encoded.into_inner(), &settings(), None).unwrap();
+            assert_eq!((result.width, result.height), (12, 8), "{format:?}");
+            assert!(result.bytes.starts_with(&[0xFF, 0xD8]), "{format:?}");
+        }
+    }
+
+    #[test]
     fn alpha_is_composited_onto_white() {
         let img = process_bytes(&png(8, 8, Rgba([0, 0, 0, 0])), &settings(), None).unwrap();
         let decoded = image::load_from_memory(&img.bytes).unwrap().to_rgb8();
@@ -288,11 +301,22 @@ mod tests {
     fn test_hero_decompression_bomb_rejected() {
         // PNG header declaring 30000 x 30000 pixels; the limit check fires before allocation.
         let mut data = png(4, 4, Rgba([1, 2, 3, 255]));
-        // IHDR width/height live at bytes 16..24.
         data[16..20].copy_from_slice(&30_000u32.to_be_bytes());
         data[20..24].copy_from_slice(&30_000u32.to_be_bytes());
+        // Keep the IHDR CRC valid so the test reaches the dimension limit.
+        let mut crc = !0u32;
+        for byte in &data[12..29] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb8_8320 & (0u32.wrapping_sub(crc & 1)));
+            }
+        }
+        data[29..33].copy_from_slice(&(!crc).to_be_bytes());
         let err = process_bytes(&data, &settings(), None).unwrap_err();
-        assert!(matches!(err, ImageError::Decode(_)), "{err}");
+        assert!(
+            matches!(&err, ImageError::Decode(message) if message.contains("limit")),
+            "{err}"
+        );
     }
 
     #[test]
@@ -337,6 +361,18 @@ mod tests {
         std::fs::write(&cached, b"corrupt").unwrap();
         let third = process_bytes(&source, &settings(), Some(dir.path())).unwrap();
         assert_eq!(third.bytes, first.bytes);
+    }
+
+    #[test]
+    fn unwritable_cache_does_not_fail_image_processing() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("not-a-directory");
+        std::fs::write(&cache, b"file").unwrap();
+        let source = png(10, 10, Rgba([10, 20, 30, 255]));
+        let cached = process_bytes(&source, &settings(), Some(&cache)).unwrap();
+        let uncached = process_bytes(&source, &settings(), None).unwrap();
+        assert_eq!(cached.bytes, uncached.bytes);
+        assert_eq!((cached.width, cached.height), (10, 10));
     }
 
     #[test]

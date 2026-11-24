@@ -51,6 +51,36 @@ fn full_required() -> (tempfile::TempDir, lopdf::Document) {
     (out, doc)
 }
 
+#[test]
+#[ignore = "requires the external veraPDF CLI"]
+fn test_real_verapdf_validates_pdf_ua() {
+    let (out, _) = full_required();
+    let command = std::env::var_os("VERAPDF").unwrap_or_else(|| {
+        if cfg!(windows) {
+            "verapdf.bat".into()
+        } else {
+            "verapdf".into()
+        }
+    });
+    let result = std::process::Command::new(&command)
+        .args(["--format", "json", "--flavour", "ua1"])
+        .arg(out.path().join("required.pdf"))
+        .output()
+        .unwrap_or_else(|e| panic!("cannot start {:?}: {e}", command));
+    assert!(result.status.success(), "{}", stderr(&result));
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout)
+        .unwrap_or_else(|e| panic!("invalid veraPDF JSON: {e}; {}", stdout(&result)));
+    let jobs = report["report"]["jobs"].as_array().expect("veraPDF jobs");
+    assert_eq!(jobs.len(), 1, "{report}");
+    let results = jobs[0]["validationResult"]
+        .as_array()
+        .expect("veraPDF validation results");
+    assert_eq!(results.len(), 1, "{report}");
+    assert_eq!(results[0]["profileName"], "PDF/UA-1 validation profile");
+    assert_eq!(results[0]["jobEndStatus"], "normal");
+    assert_eq!(results[0]["compliant"], true, "{report}");
+}
+
 /// The `/A` entry of a structure element is an array of attribute dictionaries.
 fn table_scope(doc: &lopdf::Document, e: &StructElem) -> Option<String> {
     let attrs = e.dict.get(b"A").ok()?;

@@ -16,6 +16,8 @@ commit.
 - [ ] Decide the checksum layout: one `.sha256` file per archive (current) or a single `SHA256SUMS`.
 - [ ] Download one archive per platform. Verify the checksum, run `hideo --version`, and build
       `tests/fixtures/full`.
+- [ ] Run the real Mermaid CLI and veraPDF release checks documented in the README, and complete
+      the screen-reader pass below.
 - [ ] Publish the draft by hand once all five archives and their checksums are attached.
 - [ ] Publish to crates.io with `cargo publish` (the Typst crates are exact-pinned, which is allowed for a
       binary crate). Run `cargo publish --dry-run` first and check the package size against the crates.io
@@ -48,7 +50,6 @@ commit.
       `NATIVE_KINDS` if it renders more of them well.
 - [ ] **`--verbose`** prints only a summary line; add per-page and per-diagram detail.
 - [ ] **Contact-sheet tool** that renders each diagram type through both backends for side-by-side review.
-- [ ] **veraPDF in CI** (needs Java and its installer), or as a manual check before each release.
 - [ ] **`deny.toml` exceptions.** RUSTSEC-2026-0194 and RUSTSEC-2026-0195 are ignored because `quick-xml`
       0.38 comes in through Typst's bibliography code. Remove the exceptions when a Typst release uses
       `quick-xml` 0.41 or newer, and run `cargo deny check` on every Typst upgrade.

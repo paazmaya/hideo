@@ -67,6 +67,7 @@ pub fn normalise_theme(json: &str) -> String {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::diagrams::check_svg;

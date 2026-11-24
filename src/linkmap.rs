@@ -302,6 +302,7 @@ pub fn group_unresolved(links: &[UnresolvedLink]) -> BTreeMap<String, Vec<Unreso
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::discover::SourcePage;

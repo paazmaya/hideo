@@ -1068,6 +1068,7 @@ fn diagram_alt(info_rest: &str, source: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::discover::SourcePage;

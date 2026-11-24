@@ -133,6 +133,7 @@ pub fn is_valid_lang_tag(tag: &str) -> bool {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -230,6 +231,7 @@ mod tests {
 /// Property tests: escaped text must compile in real Typst and its text must survive
 /// (plan 7.5 "Property test", 8.3).
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod property_tests {
     use super::*;
     use crate::compile::{compile_document, extract_text};

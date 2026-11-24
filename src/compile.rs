@@ -420,6 +420,7 @@ pub fn extract_text(document: &PagedDocument) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -549,6 +550,68 @@ mod tests {
         let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();
         assert_eq!(doc.get_pages().len(), 1);
         assert!(pdf.bytes.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn outline_levels_reparent_bookmarks_and_reject_invalid_sequences() {
+        let w = world("#set document(title: \"T\")\n= First\n= Child\n= Last\n");
+        let mut options = settings(false);
+        options.outline_levels = Some(vec![1, 2, 1]);
+        let pdf = compile_pdf(&w, &SourceMaps::new(), &options).unwrap();
+        let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();
+        let outlines = doc
+            .catalog()
+            .unwrap()
+            .get(b"Outlines")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let first = doc.get_dictionary(outlines).unwrap().get(b"First").unwrap();
+        let first_id = first.as_reference().unwrap();
+        let first = doc.get_dictionary(first_id).unwrap();
+        assert_eq!(first.get(b"Title").unwrap().as_str().unwrap(), b"First");
+        let child_id = first.get(b"First").unwrap().as_reference().unwrap();
+        let child = doc.get_dictionary(child_id).unwrap();
+        assert_eq!(child.get(b"Title").unwrap().as_str().unwrap(), b"Child");
+        assert_eq!(
+            child.get(b"Parent").unwrap().as_reference().unwrap(),
+            first_id
+        );
+        let last_id = first.get(b"Next").unwrap().as_reference().unwrap();
+        let last = doc.get_dictionary(last_id).unwrap();
+        assert_eq!(last.get(b"Title").unwrap().as_str().unwrap(), b"Last");
+        assert_eq!(last.get(b"Prev").unwrap().as_reference().unwrap(), first_id);
+        assert_eq!(
+            last.get(b"Parent").unwrap().as_reference().unwrap(),
+            outlines
+        );
+
+        for (levels, message) in [
+            (vec![1], "expected 1 bookmarks"),
+            (vec![0, 1, 1], "bookmark level is zero"),
+            (vec![2, 1, 1], "missing parent"),
+        ] {
+            options.outline_levels = Some(levels);
+            let errors = compile_pdf(&w, &SourceMaps::new(), &options).unwrap_err();
+            assert!(
+                errors.iter().any(|e| e.message.contains(message)),
+                "{errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn outline_normalization_accepts_a_document_without_bookmarks() {
+        let mut options = settings(false);
+        options.outline_levels = Some(Vec::new());
+        let pdf = compile_pdf(
+            &world("#set document(title: \"T\")\nNo headings."),
+            &SourceMaps::new(),
+            &options,
+        )
+        .unwrap();
+        let doc = lopdf::Document::load_mem(&pdf.bytes).unwrap();
+        assert!(doc.catalog().unwrap().get(b"Outlines").is_err());
     }
 
     #[test]

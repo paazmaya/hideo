@@ -24,7 +24,7 @@ typst = "=0.15.1"
 typst-layout = "=0.15.1"
 typst-pdf = "=0.15.1"
 typst-kit = { version = "=0.15.1", features = ["embedded-fonts"] }
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 camino = "1.2.6"
 percent-encoding = "2.3.2"
 walkdir = "2.5.1"
@@ -43,6 +43,9 @@ predicates = "3.1.4"
 insta = "1.49.0"
 proptest = "1.12.0"
 typst-render = "=0.15.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage_nightly)"] }
 
 [profile.dev]
 opt-level = 1
