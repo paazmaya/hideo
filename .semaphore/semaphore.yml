@@ -38,15 +38,8 @@ global_job_config:
       - export PATH="$HOME/.cargo/bin:$PATH"
       - rustup show
       - rustc -V && cargo -V
-      - cache restore cargo-registry-$(checksum Cargo.lock),cargo-registry
       - cargo fetch --locked
-  epilogue:
-    on_pass:
-      commands:
-        # Cache keys are never overwritten. The checksum key is stored once per Cargo.lock; the
-        # plain fallback key is deleted first so that it always points at the newest copy.
-        - cache has_key cargo-registry-$(checksum Cargo.lock) || (cache delete cargo-registry || true; cache store cargo-registry-$(checksum Cargo.lock),cargo-registry ~/.cargo/registry)
-
+      
 blocks:
   # fmt, clippy, tests and the reproducibility check share one machine and one `target` directory,
   # so Typst is compiled once. The binary for the reproducibility check is the one `cargo test`
@@ -57,7 +50,10 @@ blocks:
     task:
       prologue:
         commands:
+          - cache restore cargo-registry-linux-$(checksum Cargo.lock),cargo-registry-linux
+          - cargo fetch --locked
           - cache restore target-linux-$(checksum Cargo.lock),target-linux
+
       jobs:
         - name: fmt, clippy, test, build
           commands:
@@ -88,6 +84,7 @@ blocks:
             - test-results publish target/nextest/ci/junit.xml
         on_pass:
           commands:
+            - cache has_key cargo-registry-linux-$(checksum Cargo.lock) || (cache delete cargo-registry-linux || true; cache store cargo-registry-linux-$(checksum Cargo.lock),cargo-registry-linux ~/.cargo/registry)
             - cache has_key target-linux-$(checksum Cargo.lock) || (cache delete target-linux || true; cache store target-linux-$(checksum Cargo.lock),target-linux target)
 
   # The block below only run on `main` and on tags: macOS minutes cost twelve times a Linux
@@ -102,6 +99,8 @@ blocks:
           os_image: macos-xcode26
       prologue:
         commands:
+          - cache restore cargo-registry-macos-$(checksum Cargo.lock),cargo-registry-macos
+          - cargo fetch --locked
           - cache restore target-macos-$(checksum Cargo.lock),target-macos
       jobs:
         - name: cargo test
@@ -110,6 +109,7 @@ blocks:
       epilogue:
         on_pass:
           commands:
+            - cache has_key cargo-registry-macos-$(checksum Cargo.lock) || (cache delete cargo-registry-macos || true; cache store cargo-registry-macos-$(checksum Cargo.lock),cargo-registry-macos ~/.cargo/registry)
             - cache has_key target-macos-$(checksum Cargo.lock) || (cache delete target-macos || true; cache store target-macos-$(checksum Cargo.lock),target-macos target)
 
 promotions:
